@@ -1,0 +1,7 @@
+FROM poregen-docker-base
+
+# Copy the new script
+COPY scripts/20231211-test-run.py /scripts/20231211-test-run.py
+
+# Command to run the new script
+ENTRYPOINT ["python", "/scripts/20231211-test-run.py"]
