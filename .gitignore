@@ -123,3 +123,6 @@ scripts/training/old/*
 
 # I still have no idea why repopack is not ignored
 repopack-output.txt
+
+# Delete the yaml config files
+configs/*
