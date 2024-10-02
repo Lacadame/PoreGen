@@ -6,9 +6,11 @@ import poregen.models
 from .pore_trainer import PoreTrainer
 
 
-def pore_train(cfg_path, data_path, checkpoint_path=None):
+def pore_train(cfg_path, data_path=None, checkpoint_path=None):
     with open(cfg_path, 'r') as f:
         cfg = yaml.safe_load(f)
+    if data_path is None:
+        data_path = cfg['data']['path']
     datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
     datamodule.setup()
     models = poregen.models.get_model(cfg['model'])
