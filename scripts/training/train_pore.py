@@ -16,9 +16,9 @@ import poregen.trainers
 @click.option('--checkpoint_path', type=str, default=None,
               help='Path to checkpoint for resuming training. '\
                    'Use "best" for the best checkpoint, or provide a specific path. Default is None.')
-
-
-def train(datapath, cfgpath, checkpoint_path):
+@click.option('--fast_dev_run', is_flag=True, default=False,
+              help='If set, disables saving and trains only a few steps.')
+def train(datapath, cfgpath, checkpoint_path, fast_dev_run):
     """
     Train a pore generation model using the specified data and configuration.
     """
@@ -29,7 +29,8 @@ def train(datapath, cfgpath, checkpoint_path):
     # Run training
     poregen.trainers.pore_train(cfgpath,
                                 datapath,
-                                checkpoint_path=checkpoint_path)
+                                checkpoint_path=checkpoint_path,
+                                fast_dev_run=fast_dev_run)
 
     click.echo(f"Training completed.")
 

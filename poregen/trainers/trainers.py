@@ -6,7 +6,7 @@ import poregen.models
 from .pore_trainer import PoreTrainer
 
 
-def pore_train(cfg_path, data_path=None, checkpoint_path=None):
+def pore_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=False):
     with open(cfg_path, 'r') as f:
         cfg = yaml.safe_load(f)
     if data_path is None:
@@ -18,11 +18,12 @@ def pore_train(cfg_path, data_path=None, checkpoint_path=None):
         models,
         cfg['training'],
         cfg['output'],
-        load=checkpoint_path)
+        load=checkpoint_path,
+        fast_dev_run=fast_dev_run)
     trainer.train(datamodule)
 
 
-def pore_load(cfg_path, checkpoint_path, data_path=None):
+def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
     with open(cfg_path, 'r') as f:
         cfg = yaml.safe_load(f)
     res = dict()
@@ -33,7 +34,9 @@ def pore_load(cfg_path, checkpoint_path, data_path=None):
         cfg['output'],
         load=checkpoint_path)
     res['trainer'] = trainer
-    if data_path:
+    if load_data:
+        if data_path is None:
+            data_path = cfg['data']['path']
         datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
         datamodule.setup()
         res['datamodule'] = datamodule
