@@ -71,7 +71,11 @@ def get_binary_datamodule(data_path, cfg):  # noqa: C901
             if not feature_config:
                 return None
             if isinstance(feature_config, str):
-                return feature_extractors.make_feature_extractor(feature_config)
+                extractor_kwargs = self.cfg.get('feature_extractor_kwargs', {})
+                return feature_extractors.make_feature_extractor(
+                    feature_config,
+                    **extractor_kwargs
+                )
             elif isinstance(feature_config, list):
                 extractor_names = feature_config
                 extractor_kwargs = self.cfg.get('feature_extractor_kwargs', {})
