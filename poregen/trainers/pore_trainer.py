@@ -118,6 +118,11 @@ class PoreTrainer:
                     step_size=scheduler_config.get('step_size', 1000),
                     gamma=scheduler_config.get('gamma', 0.1)
                 )
+            elif scheduler_type == 'constant':
+                scheduler = transformers.get_constant_schedule_with_warmup(
+                    optimizer=optimizer,
+                    num_warmup_steps=scheduler_config.get('num_warmup_steps', 1000)
+                )
             else:
                 raise NotImplementedError
         else:

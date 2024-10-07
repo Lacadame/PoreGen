@@ -6,6 +6,8 @@ import porespy
 import torch
 
 from . import porosimetry
+from . import permeability
+from . import surface_area
 
 
 KwargsType = dict[str, Any]
@@ -19,6 +21,7 @@ AVAILABLE_EXTRACTORS = [
     'porosimetry_from_voxel_slice',
     'porosimetry_from_voxel',
     'porosimetry_from_slice',
+    'permeability_from_pnm',
 ]
 
 
@@ -114,6 +117,12 @@ def extract_porosimetry_from_voxel_slice(
 def extract_porosity(slice):
     porosity = torch.tensor([(1 - slice.numpy().mean())], dtype=torch.float)
     return {'porosity': porosity}
+
+
+def extract_permeability_from_pnm(voxel,
+                                  voxel_length=2.25e-6):
+    perm = permeability.calculate_permeability_from_pnm(voxel, voxel_length)
+    return {'permeability': perm}
 
 
 # Composite extractor
