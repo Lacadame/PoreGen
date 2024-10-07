@@ -43,7 +43,6 @@ def get_model(cfg):
     if model_type == 'PUNetG':
         # Create PUNetGConfig
         config_params = cfg.get('config', {})
-        print(config_params)
         punetg_config = diffsci.models.PUNetGConfig(**config_params)
 
         # Create PUNetG

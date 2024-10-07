@@ -29,7 +29,7 @@ AVAILABLE_EXTRACTORS = [
 
 def extract_two_point_correlation_from_voxel_slice(
         voxel,
-        bins: int = 100):
+        bins: int = 32):
     voxel = voxel[0]
     ind = np.random.randint(0, voxel.shape[0])
     slice = voxel[ind, :, :]
@@ -43,7 +43,7 @@ def extract_two_point_correlation_from_voxel_slice(
 
 def extract_two_point_correlation_from_voxel(
         voxel,
-        bins: int = 100):
+        bins: int = 32):
     voxel = voxel[0]
     data = porespy.metrics.two_point_correlation((1 - voxel).numpy(), bins=bins)
     dist = torch.tensor(data.distance, dtype=torch.float)
@@ -55,7 +55,7 @@ def extract_two_point_correlation_from_voxel(
 
 def extract_two_point_correlation_from_slice(
         slice,
-        bins: int = 100):
+        bins: int = 32):
     slice = slice[0]
     data = porespy.metrics.two_point_correlation((1 - slice).numpy(), bins=bins)
     dist = torch.tensor(data.distance, dtype=torch.float)
@@ -67,7 +67,7 @@ def extract_two_point_correlation_from_slice(
 
 def extract_porosimetry_from_slice(
         slice,
-        bins: int = 100,
+        bins: int = 32,
         log: bool = False):
     slice = slice[0]
     im = porosimetry.local_thickness((1 - slice).numpy())
@@ -83,7 +83,7 @@ def extract_porosimetry_from_slice(
 
 def extract_porosimetry_from_voxel(
         voxel,
-        bins: int = 100,
+        bins: int = 32,
         log: bool = False):
     voxel = voxel[0]
     im = porosimetry.local_thickness((1 - voxel).numpy())
@@ -99,7 +99,7 @@ def extract_porosimetry_from_voxel(
 
 def extract_porosimetry_from_voxel_slice(
         voxel,
-        bins: int = 10,
+        bins: int = 32,
         log: bool = False):
     ind = np.random.randint(0, voxel.shape[0])
     slice = voxel[ind, :, :]
