@@ -1,3 +1,6 @@
+from typing import Any
+import copy
+
 import yaml
 import pathlib
 import json
@@ -9,6 +12,10 @@ import poregen.data
 import poregen.features
 import poregen.models
 from .pore_trainer import PoreTrainer
+
+
+KwargsType = dict[str, Any]
+ConditionType = str | dict[str, torch.Tensor] | torch.Tensor
 
 
 def pore_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=False):
@@ -51,28 +58,73 @@ def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
     return res
 
 
-def pore_eval(cfg_path,
+def pore_eval(cfg_path,  # noqa: C901
               checkpoint_path,
               nsamples: int = 64,
+              nsamples_valid: int | None = None,
               maximum_batch_size: int = 16,
               integrator: str | None = None,
-              extractors: str | list[str] = '3d'):
-    trainer = poregen.trainers.pore_load(cfg_path,
-                                         checkpoint_path,
-                                         load_data=True)
+              extractors: str | list[str] = '3d',
+              extractor_kwargs: dict[str, KwargsType] = {},
+              y: ConditionType = None,
+              tag: None | int | str = None):
+    loaded = poregen.trainers.pore_load(cfg_path,
+                                        checkpoint_path,
+                                        load_data=True)
+    if nsamples_valid is None:
+        nsamples_valid = nsamples
+
+    x_valid = None
+    if y is not None:
+        if isinstance(y, str):
+            if y == "train":
+                # I'll sample y from the training set
+                x_valid, y = loaded['datamodule'].train_dataset[0]
+            elif y == "valid":
+                # I'll sample y from the validation set
+                x_valid, y = loaded['datamodule'].val_dataset[0]
+        else:
+            pass  # Everything is fine, y is a tensor
 
     stats_folder = create_stats_folder_from_checkpoint(
-        trainer['trainer'].checkpoint_path,
+        loaded['trainer'].checkpoint_path,
         nsamples,
-        integrator
+        integrator,
+        tag=tag
     )
 
-    generated_samples = trainer['trainer'].sample(
+    generated_samples = loaded['trainer'].sample(
         nsamples=nsamples,
         maximum_batch_size=maximum_batch_size,
-        integrator=integrator
+        integrator=integrator,
+        y=y
     )
-    valid_samples = torch.stack([trainer['datamodule'].val_dataset[i] for i in range(nsamples)]).cpu().numpy()
+
+    # If x_valid exists, I'll add it to the validation samples
+    if x_valid is not None:
+        valid_samples_cond = [x_valid]
+    else:
+        valid_samples_cond = []
+    # Does it make sense for comparing with valid samples since we are already conditioning?
+    # Some food for thought.
+    # A small hack for conditioning
+    if loaded['datamodule'].val_dataset.feature_extractor is not None:
+        # FIXME: This is rather inneficient, because we are calculating feature_extractors twice for each sample.
+        # I'm not sure if there is a better way to do this, except for artifically turning off the feature_extractor
+        # and then turning it back on.
+        # It would be something like
+        # old_feature_extractor = loaded['datamodule'].val_dataset.feature_extractor
+        # loaded['datamodule'].val_dataset.feature_extractor = None
+        # valid_samples = torch.stack([loaded['datamodule'].val_dataset[i] for i in range(nsamples)]).cpu().numpy()
+        # loaded['datamodule'].val_dataset.feature_extractor = old_feature_extractor
+        # But I'm not sure if this is a good idea.
+        valid_samples_ = [loaded['datamodule'].val_dataset[i][0]
+                          for i in range(nsamples_valid)]
+    else:
+        valid_samples_ = [loaded['datamodule'].val_dataset[i]
+                          for i in range(nsamples_valid)]
+    valid_samples_ = valid_samples_cond + valid_samples_
+    valid_samples = torch.stack(valid_samples_).cpu().numpy()
 
     if isinstance(extractors, str):
         if extractors == '3d':
@@ -88,7 +140,8 @@ def pore_eval(cfg_path,
                           'surface_area_density_from_slice']
 
     extractor = poregen.features.feature_extractors.make_composite_feature_extractor(
-        extractors
+        extractors,
+        extractor_kwargs=extractor_kwargs
     )
 
     generated_stats_all = []
@@ -119,6 +172,9 @@ def pore_eval(cfg_path,
 
     # Save generated stats
     generated_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(generated_stats_all)}
+    y = convert_condition_to_dict(y)
+    generated_stats_dict['condition'] = y
+
     with open(stats_folder / "generated_stats.json", "w") as f:
         json.dump(generated_stats_dict, f, cls=NumpyEncoder)
 
@@ -129,6 +185,18 @@ def pore_eval(cfg_path,
 
 
 # Auxiliary functions
+
+def convert_condition_to_dict(y):
+    if y is None:
+        return None
+    elif isinstance(y, dict):
+        y_copy = copy.deepcopy(y)
+        convert_dict_items_to_numpy(y_copy)
+        return y_copy
+    else:
+        y_copy = np.array(y).astype(np.float32)
+        return y_copy
+
 
 def convert_dict_items_to_numpy(d):
     for k, v in d.items():
@@ -144,7 +212,8 @@ def convert_dict_items_to_numpy(d):
 def create_stats_folder_from_checkpoint(
         checkpoint_path,
         nsamples,
-        integrator):
+        integrator,
+        tag: None | int = None):
     # Convert the checkpoint path to a Path object
     if integrator is None:
         integrator = 'default'
@@ -156,11 +225,16 @@ def create_stats_folder_from_checkpoint(
     # Get the parent directory of 'checkpoints'
     parent_dir = checkpoint_path.parent.parent
 
+    stats_dir_name = 'stats'
     # Stats folder name
     folder_name = f'stats-{nsamples}-{integrator}'
+    if tag is not None:
+        if isinstance(tag, int):
+            tag = f'{tag:06d}'
+        folder_name += f'-{tag}'
 
     # Create the new stats folder path
-    stats_folder = parent_dir / folder_name / checkpoint_name
+    stats_folder = parent_dir / stats_dir_name / folder_name / checkpoint_name
 
     # Create the directory and all necessary parent directories
     stats_folder.mkdir(parents=True, exist_ok=True)

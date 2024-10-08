@@ -126,7 +126,10 @@ def extract_porosity(slice):
 
 def extract_permeability_from_pnm(voxel,
                                   voxel_length=2.25e-6):
-    perm = permeability.calculate_permeability_from_pnm(voxel, voxel_length)
+    try:
+        perm = permeability.calculate_permeability_from_pnm(voxel, voxel_length)
+    except Exception:  # Could not calculate permeability
+        perm = np.nan*np.ones(len(voxel.shape) - 1)
     return {'permeability': torch.tensor(perm, dtype=torch.float)}
 
 
