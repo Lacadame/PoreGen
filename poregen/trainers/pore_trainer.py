@@ -16,6 +16,7 @@ class PoreTrainer:
                  models,
                  train_config,
                  output_config,
+                 data_config=None,
                  load=None,
                  training=True,
                  fast_dev_run=False):
@@ -23,9 +24,11 @@ class PoreTrainer:
         self.autoencoder = models.get('autoencoder', None)
         self.train_config = train_config
         self.output_config = output_config
+        self.data_config = data_config
         self.load = load
         self.training = training
         self.fast_dev_run = fast_dev_run
+        self.checkpoint_path = None
 
         # Create KarrasModuleConfig
         karras_config = self.create_karras_config()
@@ -64,6 +67,7 @@ class PoreTrainer:
         else:
             # Load from checkpoint
             checkpoint_path = self.get_checkpoint_path()
+            self.checkpoint_path = checkpoint_path
             return KarrasModule.load_from_checkpoint(
                 checkpoint_path,
                 model=self.model,
@@ -174,10 +178,10 @@ class PoreTrainer:
 
     def predict(self, predict_loader):
         return self.trainer.predict(self.karras_module, predict_loader)
-    
+
     def sample(self,
                nsamples,
-               shape,
+               shape=None,
                y=None,
                guidance=1.0,
                nsteps=100,
@@ -187,6 +191,8 @@ class PoreTrainer:
                binarize=True,
                return_numpy=True):
         self.karras_module.eval()
+        if shape is None:
+            shape = self.get_shape_from_data_config()
         samples = self.karras_module.sample(
             nsamples,
             shape,
@@ -202,10 +208,23 @@ class PoreTrainer:
                 axes = list(range(2, len(samples.shape)))
             else:
                 axes = list(range(1, len(samples.shape)))
-            samples = samples > samples.mean(axis=[1, 2, 3, 4], keepdim=True)
+            samples = samples > samples.mean(axis=axes, keepdim=True)
         if return_numpy:
             samples = samples.cpu().detach().numpy()
         return samples
+
+    def get_shape_from_data_config(self):
+        if self.data_config is None:
+            raise ValueError("Data config is None. Cannot infer shape.")
+        image_size = self.data_config.get('image_size')
+        dimension = self.data_config.get('dimension')
+        if isinstance(image_size, int):
+            base_shape = [image_size] * dimension
+        elif hasattr(image_size, '__len__'):
+            base_shape = image_size
+            assert len(base_shape) == dimension
+        shape = list([1] + base_shape)
+        return shape
 
 
 def get_scheduler_cls(scheduler_type):
@@ -217,6 +236,8 @@ def get_scheduler_cls(scheduler_type):
         return torch.optim.lr_scheduler.StepLR
     else:
         raise NotImplementedError
+
+
 def get_optimizer_cls(optimizer_type):
     # lower the string
     optimizer_type = optimizer_type.lower()
