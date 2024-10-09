@@ -1,5 +1,6 @@
 from typing import Any
 import copy
+import shutil
 
 import yaml
 import pathlib
@@ -73,16 +74,16 @@ def pore_eval(cfg_path,  # noqa: C901
                                         load_data=True)
     if nsamples_valid is None:
         nsamples_valid = nsamples
-
-    x_valid = None
+    voxel_size_um = loaded['datamodule'].voxel_size_um
+    x_cond = None
     if y is not None:
         if isinstance(y, str):
             if y == "train":
                 # I'll sample y from the training set
-                x_valid, y = loaded['datamodule'].train_dataset[0]
+                x_cond, y = loaded['datamodule'].train_dataset[0]
             elif y == "valid":
                 # I'll sample y from the validation set
-                x_valid, y = loaded['datamodule'].val_dataset[0]
+                x_cond, y = loaded['datamodule'].val_dataset[0]
         else:
             pass  # Everything is fine, y is a tensor
 
@@ -101,13 +102,6 @@ def pore_eval(cfg_path,  # noqa: C901
     )
 
     # If x_valid exists, I'll add it to the validation samples
-    if x_valid is not None:
-        valid_samples_cond = [x_valid]
-    else:
-        valid_samples_cond = []
-    # Does it make sense for comparing with valid samples since we are already conditioning?
-    # Some food for thought.
-    # A small hack for conditioning
     if loaded['datamodule'].val_dataset.feature_extractor is not None:
         # FIXME: This is rather inneficient, because we are calculating feature_extractors twice for each sample.
         # I'm not sure if there is a better way to do this, except for artifically turning off the feature_extractor
@@ -118,13 +112,15 @@ def pore_eval(cfg_path,  # noqa: C901
         # valid_samples = torch.stack([loaded['datamodule'].val_dataset[i] for i in range(nsamples)]).cpu().numpy()
         # loaded['datamodule'].val_dataset.feature_extractor = old_feature_extractor
         # But I'm not sure if this is a good idea.
-        valid_samples_ = [loaded['datamodule'].val_dataset[i][0]
-                          for i in range(nsamples_valid)]
+        valid_samples = [loaded['datamodule'].val_dataset[i][0]
+                         for i in range(nsamples_valid)]
     else:
-        valid_samples_ = [loaded['datamodule'].val_dataset[i]
-                          for i in range(nsamples_valid)]
-    valid_samples_ = valid_samples_cond + valid_samples_
-    valid_samples = torch.stack(valid_samples_).cpu().numpy()
+        valid_samples = [loaded['datamodule'].val_dataset[i]
+                         for i in range(nsamples_valid)]
+    valid_samples = torch.stack(valid_samples).cpu().numpy()
+
+    if x_cond is not None:
+        x_cond = x_cond.cpu().numpy()
 
     if isinstance(extractors, str):
         if extractors == '3d':
@@ -139,6 +135,12 @@ def pore_eval(cfg_path,  # noqa: C901
                           'porosity',
                           'surface_area_density_from_slice']
 
+    # A hack to put the voxel size for porosimetry_from_pnm
+    if 'porosimetry_from_pnm' in extractors:
+        if 'porosimetry_from_pnm' in extractor_kwargs:
+            extractor_kwargs['porosimetry_from_pnm']['voxel_size'] = voxel_size_um*1e-6
+        else:
+            extractor_kwargs['porosimetry_from_pnm'] = {'voxel_size': voxel_size_um*1e-6}
     extractor = poregen.features.feature_extractors.make_composite_feature_extractor(
         extractors,
         extractor_kwargs=extractor_kwargs
@@ -156,6 +158,9 @@ def pore_eval(cfg_path,  # noqa: C901
         convert_dict_items_to_numpy(valid_stats)
         valid_stats_all.append(valid_stats)
 
+    if x_cond is not None:
+        cond_stats = extractor(torch.tensor(x_cond))
+        convert_dict_items_to_numpy(cond_stats)
     # Create subfolders for generated and valid samples
     generated_folder = stats_folder / "generated_samples"
     valid_folder = stats_folder / "valid_samples"
@@ -170,6 +175,10 @@ def pore_eval(cfg_path,  # noqa: C901
     for i, sample in enumerate(valid_samples):
         np.save(valid_folder / f"{i+1:05d}.npy", sample)
 
+    # Save the cond sample
+    if x_cond is not None:
+        np.save(stats_folder / "xcond.npy", sample)
+
     # Save generated stats
     generated_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(generated_stats_all)}
     y = convert_condition_to_dict(y)
@@ -182,6 +191,13 @@ def pore_eval(cfg_path,  # noqa: C901
     valid_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(valid_stats_all)}
     with open(stats_folder / "valid_stats.json", "w") as f:
         json.dump(valid_stats_dict, f, cls=NumpyEncoder)
+
+    if x_cond is not None:
+        with open(stats_folder / "xcond_stats.json", "w") as f:
+            json.dump(cond_stats, f, cls=NumpyEncoder)
+
+    # Save a copy of the config file
+    shutil.copy(cfg_path, stats_folder / "config.yaml")
 
 
 # Auxiliary functions

@@ -13,6 +13,9 @@ def get_binary_datamodule(data_path, cfg):  # noqa: C901
             super().__init__()
             self.data_path = data_path
             self.cfg = cfg
+            # The default here comes from eleven sandstones
+            self.voxel_size_um = (self.cfg.get("voxel_size_um", 2.25) * 
+                                  self.cfg.get("voxel_downscale_factor", 1))
 
         def setup(self, stage=None):
             voxels = self.load_voxels()
