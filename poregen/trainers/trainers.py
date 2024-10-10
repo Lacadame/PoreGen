@@ -68,6 +68,7 @@ def pore_eval(cfg_path,  # noqa: C901
               extractors: str | list[str] = '3d',
               extractor_kwargs: dict[str, KwargsType] = {},
               y: ConditionType = None,
+              guided: bool = False,
               tag: None | int | str = None):
     loaded = poregen.trainers.pore_load(cfg_path,
                                         checkpoint_path,
@@ -78,12 +79,25 @@ def pore_eval(cfg_path,  # noqa: C901
     x_cond = None
     if y is not None:
         if isinstance(y, str):
+            if guided:
+                nconds = nsamples
+            else:
+                nconds = 1
             if y == "train":
                 # I'll sample y from the training set
-                x_cond, y = loaded['datamodule'].train_dataset[0]
+                x_cond = [loaded['datamodule'].train_dataset[i][0]
+                          for i in range(nconds)]
+                y = [loaded['datamodule'].train_dataset[i][1]
+                     for i in range(nconds)]
             elif y == "valid":
                 # I'll sample y from the validation set
-                x_cond, y = loaded['datamodule'].val_dataset[0]
+                x_cond = [loaded['datamodule'].val_dataset[i][0]
+                          for i in range(nconds)]
+                y = [loaded['datamodule'].val_dataset[i][1]
+                     for i in range(nconds)]
+            else:
+                raise ValueError("Invalid y argument should be either 'train' or 'valid'")
+            x_cond = torch.stack(x_cond)
         else:
             pass  # Everything is fine, y is a tensor
 
@@ -93,13 +107,25 @@ def pore_eval(cfg_path,  # noqa: C901
         integrator,
         tag=tag
     )
-
-    generated_samples = loaded['trainer'].sample(
-        nsamples=nsamples,
-        maximum_batch_size=maximum_batch_size,
-        integrator=integrator,
-        y=y
-    )
+    if guided:
+        generated_samples = np.zeros(x_cond.shape)
+        for i in range(nsamples):
+            generated_sample = loaded['trainer'].sample(
+                nsamples=1,
+                maximum_batch_size=maximum_batch_size,
+                integrator=integrator,
+                y=y[i]
+            )
+            generated_samples[i] = generated_sample[0]
+    else:
+        if y is not None:
+            y = y[0]
+        generated_samples = loaded['trainer'].sample(
+            nsamples=nsamples,
+            maximum_batch_size=maximum_batch_size,
+            integrator=integrator,
+            y=y
+            )
 
     # If x_valid exists, I'll add it to the validation samples
     if loaded['datamodule'].val_dataset.feature_extractor is not None:
@@ -120,7 +146,7 @@ def pore_eval(cfg_path,  # noqa: C901
     valid_samples = torch.stack(valid_samples).cpu().numpy()
 
     if x_cond is not None:
-        x_cond = x_cond.cpu().numpy()
+        x_cond = x_cond[0].cpu().numpy()
 
     if isinstance(extractors, str):
         if extractors == '3d':
@@ -159,8 +185,15 @@ def pore_eval(cfg_path,  # noqa: C901
         valid_stats_all.append(valid_stats)
 
     if x_cond is not None:
-        cond_stats = extractor(torch.tensor(x_cond))
-        convert_dict_items_to_numpy(cond_stats)
+        if guided:
+            cond_stats_all = []
+            for x_cond_i in x_cond:
+                cond_stats = extractor(torch.tensor(x_cond_i))
+                convert_dict_items_to_numpy(cond_stats)
+                cond_stats_all.append(cond_stats)
+        else:
+            cond_stats = extractor(torch.tensor(x_cond))
+            convert_dict_items_to_numpy(cond_stats)
     # Create subfolders for generated and valid samples
     generated_folder = stats_folder / "generated_samples"
     valid_folder = stats_folder / "valid_samples"
@@ -181,8 +214,13 @@ def pore_eval(cfg_path,  # noqa: C901
 
     # Save generated stats
     generated_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(generated_stats_all)}
-    y = convert_condition_to_dict(y)
-    generated_stats_dict['condition'] = y
+    if x_cond is not None:
+        if not guided:          # TODO: figure out how to save the conditions for guided
+            y = convert_condition_to_dict(y[0])
+            generated_stats_dict['condition'] = y
+    else:
+        y = convert_condition_to_dict(y)
+        generated_stats_dict['condition'] = y
 
     with open(stats_folder / "generated_stats.json", "w") as f:
         json.dump(generated_stats_dict, f, cls=NumpyEncoder)
@@ -193,8 +231,13 @@ def pore_eval(cfg_path,  # noqa: C901
         json.dump(valid_stats_dict, f, cls=NumpyEncoder)
 
     if x_cond is not None:
-        with open(stats_folder / "xcond_stats.json", "w") as f:
-            json.dump(cond_stats, f, cls=NumpyEncoder)
+        if guided:
+            x_cond_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(cond_stats_all)}
+            with open(stats_folder / "xcond_stats.json", "w") as f:
+                json.dump(x_cond_stats_dict, f, cls=NumpyEncoder)
+        else:
+            with open(stats_folder / "xcond_stats.json", "w") as f:
+                json.dump(cond_stats, f, cls=NumpyEncoder)
 
     # Save a copy of the config file
     shutil.copy(cfg_path, stats_folder / "config.yaml")
