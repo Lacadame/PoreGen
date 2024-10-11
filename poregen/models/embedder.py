@@ -118,7 +118,8 @@ class PoreSizeDistEmbedder(torch.nn.Module):
     def __init__(self,
                  dembed,
                  reduction: str | None = None,
-                 scale: float = 30.0):
+                 scale: float = 30.0,
+                 pdf: bool = False):
         super().__init__()
         self.dembed = dembed
         self.scale = scale
@@ -126,6 +127,7 @@ class PoreSizeDistEmbedder(torch.nn.Module):
         self.gaussian_proj = commonlayers.GaussianFourierProjection(dembed,
                                                                     scale)
         self.reduction = reduction
+        self.pdf = pdf
 
     def forward(self, data):
         """
@@ -144,7 +146,10 @@ class PoreSizeDistEmbedder(torch.nn.Module):
             The embedded tensor
         """
         dist = data['psd_centers']
-        density = data['psd_cdf']
+        if self.pdf:
+            density = data['psd_pdf']
+        else:
+            density = data['psd_cdf']
         x1 = self.pos_encoder(dist)
         x2 = self.gaussian_proj(density)
         x = x1 + x2
@@ -253,7 +258,7 @@ def get_porosity_embedder(dembed, scale=30.0):
 def get_tpc_transformer(dembed,
                         nhead=4,
                         ffn_expansion=4,
-                        num_layers=2, 
+                        num_layers=2,
                         scale: float = 30.0):
     embedder = TwoPointCorrelationEmbedder(dembed, scale=scale)
     transformer = TwoPointCorrelationTransformer(embedder,
@@ -269,6 +274,19 @@ def get_psd_transformer(dembed,
                         num_layers=2,
                         scale: float = 30.0):
     embedder = PoreSizeDistEmbedder(dembed, scale=scale)
+    transformer = PoreSizeDistTransformer(embedder,
+                                          nhead=nhead,
+                                          ffn_expansion=ffn_expansion,
+                                          num_layers=num_layers)
+    return transformer
+
+
+def get_psd_pdf_transformer(dembed,
+                            nhead=4,
+                            ffn_expansion=4,
+                            num_layers=2,
+                            scale: float = 30.0):
+    embedder = PoreSizeDistEmbedder(dembed, scale=scale, pdf=True)
     transformer = PoreSizeDistTransformer(embedder,
                                           nhead=nhead,
                                           ffn_expansion=ffn_expansion,
