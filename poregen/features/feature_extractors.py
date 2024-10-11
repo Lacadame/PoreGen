@@ -70,10 +70,12 @@ def extract_porosimetry_base(data,
     for i in range(maximum_momentum):
         momenta.append((raw_data**(i+1)).sum(axis=0)/data_size)
     log_momenta = torch.tensor(np.log(np.array(momenta)), dtype=torch.float)
+    root_momenta = momenta**np.array([1/(i+1) for i in range(maximum_momentum)])
     return {'psd_centers': bin_centers,
             'psd_cdf': cdf,
             'psd_pdf': pdf,
-            'log_momenta': log_momenta}
+            'log_momenta': log_momenta,
+            'root_momenta': root_momenta}
 
 
 def extract_porosimetry_from_slice(slice,
