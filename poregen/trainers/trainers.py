@@ -216,7 +216,7 @@ def pore_eval(cfg_path,  # noqa: C901
     generated_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(generated_stats_all)}
     if x_cond is not None:
         if not guided:          # TODO: figure out how to save the conditions for guided
-            y = convert_condition_to_dict(y[0])
+            y = convert_condition_to_dict(y)
             generated_stats_dict['condition'] = y
     else:
         y = convert_condition_to_dict(y)

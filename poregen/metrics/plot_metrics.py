@@ -153,12 +153,16 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
 
     generated_stats_path = f"{datapath}/generated_stats.json"
     x_cond_stats_path = f"{datapath}/xcond_stats.json"
+    valid_stats_path = f"{datapath}/valid_stats.json"
 
     with open(generated_stats_path, "r") as f:
         generated_stats = json.load(f)
 
     with open(x_cond_stats_path, "r") as f:
         x_cond_stats = json.load(f)
+
+    with open(valid_stats_path, "r") as f:
+        valid_stats = json.load(f)
 
     conditions = cfg['data']['feature_extractor']
     fig1 = None
@@ -192,48 +196,64 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
         generated_psd_cdf, _ = extract_property(generated_stats, 'psd_cdf')
         generated_psd_centers, _ = extract_property(generated_stats, 'psd_centers')
 
+        valid_psd_pdf, _ = extract_property(valid_stats, 'psd_pdf')
+        valid_psd_cdf, _ = extract_property(valid_stats, 'psd_cdf')
+        valid_psd_centers, _ = extract_property(valid_stats, 'psd_centers')
+
         x_cond_psd_pdf = x_cond_stats['psd_pdf']
-        x_cond_psd_cdf = x_cond_stats['psd_cdf']
-        x_cond_psd_centers = x_cond_stats['psd_centers']
         x_cond_psd_pdf = np.array(x_cond_psd_pdf)
+        x_cond_psd_cdf = x_cond_stats['psd_cdf']
+        x_cond_psd_cdf = np.array(x_cond_psd_cdf)
+        x_cond_psd_centers = x_cond_stats['psd_centers']
         x_cond_psd_centers = np.array(x_cond_psd_centers)
 
         # The centers have units of um
         generated_psd_centers *= voxel_size_um
         x_cond_psd_centers *= voxel_size_um
+        valid_psd_centers *= voxel_size_um
 
         # Plot PDF
-        fig2, ax = plt.subplots(1, 1, figsize=(6, 6))
+        fig2, axs = plt.subplots(1, 2, figsize=(12, 6))
         nplots = generated_psd_pdf.shape[1] - 1
         for i in range(nplots):
-            ax.plot(generated_psd_centers[:, i], generated_psd_pdf[:, i], alpha=0.2, color='red')
-        ax.plot(generated_psd_centers[:, nplots], generated_psd_pdf[:, nplots], alpha=0.2, color='red',
-                label='Generated')
+            axs[0].plot(generated_psd_centers[i], generated_psd_pdf[i], alpha=0.2, color='red')
+            axs[1].plot(valid_psd_centers[i], valid_psd_pdf[i], alpha=0.2, color='red')
+        axs[0].plot(generated_psd_centers[nplots], generated_psd_pdf[nplots], alpha=0.2, color='red',
+                    label='Generated')
+        axs[1].plot(valid_psd_centers[nplots], valid_psd_pdf[nplots], alpha=0.2, color='red', label='Valid')
 
-        ax.plot(x_cond_psd_centers, x_cond_psd_pdf, color='black', label='Condition')
+        axs[0].plot(x_cond_psd_centers, x_cond_psd_pdf, color='black', label='Condition')
+        axs[1].plot(x_cond_psd_centers, x_cond_psd_pdf, color='black', label='Condition')
 
-        ax.set_xlabel(r'Pore Size $(\mu m)$')
-        ax.set_ylabel('Probability Density')
-        ax.set_title('Pore Size Distribution - PDF')
-        ax.legend()
-        ax.set_xscale('log')
+        for ax in axs:
+            ax.set_xlabel(r'Pore Size $(\mu m)$')
+            ax.set_ylabel('Probability Density')
+            ax.legend()
+            ax.set_xscale('log')
+        axs[0].set_title('Pore Size Distribution - PDF (Generated)')
+        axs[1].set_title('Pore Size Distribution - PDF (Validation)')
+
         fig2.tight_layout()
 
         # Plot CDF
-        fig3, ax = plt.subplots(1, 1, figsize=(6, 6))
+        fig3, axs = plt.subplots(1, 2, figsize=(12, 6))
         nplots = generated_psd_cdf.shape[1] - 1
         for i in range(nplots):
-            ax.plot(generated_psd_centers[:, i], generated_psd_cdf[:, i], alpha=0.2, color='red')
-        ax.plot(generated_psd_centers[:, nplots], generated_psd_cdf[:, nplots], alpha=0.2, color='red',
-                label='Generated')
+            axs[0].plot(generated_psd_centers[i], generated_psd_cdf[i], alpha=0.2, color='red')
+            axs[1].plot(valid_psd_centers[i], valid_psd_cdf[i], alpha=0.2, color='red')
+        axs[0].plot(generated_psd_centers[nplots], generated_psd_cdf[nplots], alpha=0.2, color='red',
+                    label='Generated')
+        axs[1].plot(valid_psd_centers[nplots], valid_psd_cdf[nplots], alpha=0.2, color='red', label='Valid')
 
-        ax.plot(x_cond_psd_centers, x_cond_psd_cdf, color='black', label='Condition')
+        axs[0].plot(x_cond_psd_centers, x_cond_psd_cdf, color='black', label='Condition')
+        axs[1].plot(x_cond_psd_centers, x_cond_psd_cdf, color='black', label='Condition')
 
-        ax.set_xlabel(r'Pore Size $(\mu m)$')
-        ax.set_ylabel('Cumulative Probability')
-        ax.set_title('Pore Size Distribution - CDF')
-        ax.legend()
-        ax.set_xscale('log')
+        for ax in axs:
+            ax.set_xlabel(r'Pore Size $(\mu m)$')
+            ax.set_ylabel('Cumulative Probability')
+            ax.set_title('Pore Size Distribution - CDF')
+            ax.legend()
+            ax.set_xscale('log')
         fig3.tight_layout()
 
     if 'two_point_correlation_from_voxel' in conditions:
