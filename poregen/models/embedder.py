@@ -119,7 +119,7 @@ class PoreSizeDistEmbedder(torch.nn.Module):
                  dembed,
                  reduction: str | None = None,
                  scale: float = 30.0,
-                 pdf: bool = False):
+                 type: str = 'psd_cdf'):
         super().__init__()
         self.dembed = dembed
         self.scale = scale
@@ -127,7 +127,7 @@ class PoreSizeDistEmbedder(torch.nn.Module):
         self.gaussian_proj = commonlayers.GaussianFourierProjection(dembed,
                                                                     scale)
         self.reduction = reduction
-        self.pdf = pdf
+        self.type = type
 
     def forward(self, data):
         """
@@ -146,10 +146,7 @@ class PoreSizeDistEmbedder(torch.nn.Module):
             The embedded tensor
         """
         dist = data['psd_centers']
-        if self.pdf:
-            density = data['psd_pdf']
-        else:
-            density = data['psd_cdf']
+        density = data[self.type]
         x1 = self.pos_encoder(dist)
         x2 = self.gaussian_proj(density)
         x = x1 + x2
@@ -233,6 +230,42 @@ class PorosityEmbedder(torch.nn.Module):
         }
 
 
+class MomentaEmbedder(torch.nn.Module):
+    def __init__(self,
+                 nmax,
+                 dembed,
+                 type: str = 'log_momenta',
+                 scale=30.0):
+        super().__init__()
+        self.dembed = dembed
+        self.scale = scale
+        self.gaussian_proj = commonlayers.GaussianFourierProjectionVector(
+            nmax,
+            dembed,
+            scale
+        )
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(dembed, 4*dembed),
+            torch.nn.SiLU(),
+            torch.nn.Linear(4*dembed, 4*dembed),
+            torch.nn.SiLU(),
+            torch.nn.Linear(4*dembed, dembed)
+        )
+        self.type = type
+
+    def forward(self, data):
+        # x : [nbatch, nmax]
+        momenta = data[self.type]
+        y = self.net(self.gaussian_proj(momenta))
+        return y
+
+    def export_description(self):
+        return {
+            'dembed': self.dembed,
+            'scale': self.scale
+        }
+
+
 class CompositeEmbedder(torch.nn.Module):
     def __init__(self, embedders):
         super().__init__()
@@ -255,6 +288,10 @@ def get_porosity_embedder(dembed, scale=30.0):
     return PorosityEmbedder(dembed, scale)
 
 
+def get_psd_momenta_embedder(dembed, nmax=4, type='log_momenta', scale=30.0):
+    return MomentaEmbedder(nmax, dembed, type=type, scale=scale)
+
+
 def get_tpc_transformer(dembed,
                         nhead=4,
                         ffn_expansion=4,
@@ -273,7 +310,7 @@ def get_psd_transformer(dembed,
                         ffn_expansion=4,
                         num_layers=2,
                         scale: float = 30.0):
-    embedder = PoreSizeDistEmbedder(dembed, scale=scale)
+    embedder = PoreSizeDistEmbedder(dembed, scale=scale, type='psd_cdf')
     transformer = PoreSizeDistTransformer(embedder,
                                           nhead=nhead,
                                           ffn_expansion=ffn_expansion,
@@ -286,7 +323,7 @@ def get_psd_pdf_transformer(dembed,
                             ffn_expansion=4,
                             num_layers=2,
                             scale: float = 30.0):
-    embedder = PoreSizeDistEmbedder(dembed, scale=scale, pdf=True)
+    embedder = PoreSizeDistEmbedder(dembed, scale=scale, type='psd_pdf')
     transformer = PoreSizeDistTransformer(embedder,
                                           nhead=nhead,
                                           ffn_expansion=ffn_expansion,
