@@ -72,11 +72,15 @@ def extract_porosimetry_base(data,
     log_momenta = torch.tensor(np.log(np.array(momenta)), dtype=torch.float)
     root_momenta = momenta**np.array([1/(i+1) for i in range(maximum_momentum)])
     root_momenta = torch.tensor(root_momenta, dtype=torch.float)
+
+    standardized_momenta = calculate_standardized_momenta(raw_data, maximum_momentum)
+
     return {'psd_centers': bin_centers,
             'psd_cdf': cdf,
             'psd_pdf': pdf,
             'log_momenta': log_momenta,
-            'root_momenta': root_momenta}
+            'root_momenta': root_momenta,
+            'standardized_momenta': standardized_momenta}
 
 
 def extract_porosimetry_from_slice(slice,
@@ -172,3 +176,25 @@ def make_composite_feature_extractor(extractor_names: list[str],
         extractors.append(make_feature_extractor(name, **args))
     # Make the composite extractor
     return extract_composite(extractors)
+
+
+# Auxiliary functions
+
+def calculate_standardized_momenta(raw_data, maximum_momentum):
+    # Calculate the standardized momenta
+    standardized_momenta = []
+    assert maximum_momentum > 0
+    # First standardized momenta is just the mean
+    mean = raw_data.mean()
+    standardized_momenta.append(mean)
+    if maximum_momentum > 1:
+        # Second standardized momenta is the standard deviation
+        std = raw_data.std()
+        standardized_momenta.append(std)
+    if maximum_momentum > 2:
+        for i in range(2, maximum_momentum):
+            # The rest of the standardized momenta are the centered raw data
+            centered_momenta = ((raw_data - mean)**(i+1)).mean()
+            centered_momenta = centered_momenta/(std**(i+1))*std
+            standardized_momenta.append(centered_momenta)
+    return torch.tensor(standardized_momenta, dtype=torch.float)
