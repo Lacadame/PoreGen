@@ -256,6 +256,18 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
             ax.set_xscale('log')
         fig3.tight_layout()
 
+        # boxplots for momenta
+        generated_momenta, _ = extract_property(generated_stats, 'standardized_momenta')
+        x_cond_momenta = x_cond_stats['standardized_momenta']
+        print(generated_momenta)
+
+        fig4, axs = plt.subplots(1, 4, figsize=(16, 4))
+        for i in range(4):
+            axs[i].boxplot([generated_momenta[:, i], x_cond_momenta[i]], labels=['Generated', 'Condition'])
+            axs[i].set_ylabel(r'$\mu$')
+            axs[i].set_title(f'Standardized Momenta {i+1}')
+        fig4.tight_layout()
+
     if 'two_point_correlation_from_voxel' in conditions:
         generated_tpc_dist, _ = extract_property(generated_stats, 'tpc_dist')
         x_cond_tpc_dist, _ = extract_property(x_cond_stats, 'tpc_dist')
