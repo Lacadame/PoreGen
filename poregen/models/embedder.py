@@ -234,29 +234,43 @@ class MomentaEmbedder(torch.nn.Module):
     def __init__(self,
                  nmax,
                  dembed,
-                 type: str = 'log_momenta',
-                 scale=30.0):
+                 type: str = 'standardized_momenta',
+                 scale=30.0,
+                 fourier=True):
         super().__init__()
         self.dembed = dembed
         self.scale = scale
-        self.gaussian_proj = commonlayers.GaussianFourierProjectionVector(
-            nmax,
-            dembed,
-            scale
-        )
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(dembed, 4*dembed),
-            torch.nn.SiLU(),
-            torch.nn.Linear(4*dembed, 4*dembed),
-            torch.nn.SiLU(),
-            torch.nn.Linear(4*dembed, dembed)
-        )
+        if fourier:
+            self.gaussian_proj = commonlayers.GaussianFourierProjectionVector(
+                nmax,
+                dembed,
+                scale
+            )
+            self.net = torch.nn.Sequential(
+                torch.nn.Linear(dembed, 4*dembed),
+                torch.nn.SiLU(),
+                torch.nn.Linear(4*dembed, 4*dembed),
+                torch.nn.SiLU(),
+                torch.nn.Linear(4*dembed, dembed)
+            )
+        else:
+            self.net = torch.nn.Sequential(
+                torch.nn.Linear(nmax, 4*dembed),
+                torch.nn.SiLU(),
+                torch.nn.Linear(4*dembed, 4*dembed),
+                torch.nn.SiLU(),
+                torch.nn.Linear(4*dembed, dembed)
+            )
+        self.fourier = fourier
         self.type = type
 
     def forward(self, data):
         # x : [nbatch, nmax]
         momenta = data[self.type]
-        y = self.net(self.gaussian_proj(momenta))
+        if self.fourier:
+            y = self.net(self.gaussian_proj(momenta))
+        else:
+            y = self.net(momenta)
         return y
 
     def export_description(self):
@@ -288,8 +302,8 @@ def get_porosity_embedder(dembed, scale=30.0):
     return PorosityEmbedder(dembed, scale)
 
 
-def get_psd_momenta_embedder(dembed, nmax=4, type='log_momenta', scale=30.0):
-    return MomentaEmbedder(nmax, dembed, type=type, scale=scale)
+def get_psd_momenta_embedder(dembed, nmax=4, type='standardized_momenta', scale=30.0, fourier=True):
+    return MomentaEmbedder(nmax, dembed, type=type, scale=scale, fourier=fourier)
 
 
 def get_tpc_transformer(dembed,
@@ -306,24 +320,12 @@ def get_tpc_transformer(dembed,
 
 
 def get_psd_transformer(dembed,
+                        type: str = 'psd_cdf',
                         nhead=4,
                         ffn_expansion=4,
                         num_layers=2,
                         scale: float = 30.0):
-    embedder = PoreSizeDistEmbedder(dembed, scale=scale, type='psd_cdf')
-    transformer = PoreSizeDistTransformer(embedder,
-                                          nhead=nhead,
-                                          ffn_expansion=ffn_expansion,
-                                          num_layers=num_layers)
-    return transformer
-
-
-def get_psd_pdf_transformer(dembed,
-                            nhead=4,
-                            ffn_expansion=4,
-                            num_layers=2,
-                            scale: float = 30.0):
-    embedder = PoreSizeDistEmbedder(dembed, scale=scale, type='psd_pdf')
+    embedder = PoreSizeDistEmbedder(dembed, scale=scale, type=type)
     transformer = PoreSizeDistTransformer(embedder,
                                           nhead=nhead,
                                           ffn_expansion=ffn_expansion,

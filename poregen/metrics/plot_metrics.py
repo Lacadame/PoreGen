@@ -169,6 +169,7 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
     fig2 = None
     fig3 = None
     fig4 = None
+    fig5 = None
 
     if 'porosity' in conditions:
         gen, _ = extract_property(generated_stats, 'porosity')
@@ -190,7 +191,13 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
         ax.legend()
         fig1.tight_layout()
 
-    if 'porosimetry_from_voxel' in conditions:
+    porosimetry_condition = (
+        ('porosimetry_from_voxel' in conditions) or
+        ('porosimetry_from_slice' in conditions) or
+        ('porosimetry_from_voxel_slice' in conditions)
+    )
+
+    if porosimetry_condition:
 
         generated_psd_pdf, _ = extract_property(generated_stats, 'psd_pdf')
         generated_psd_cdf, _ = extract_property(generated_stats, 'psd_cdf')
@@ -258,36 +265,49 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
 
         # boxplots for momenta
         generated_momenta, _ = extract_property(generated_stats, 'standardized_momenta')
+        valid_momenta, _ = extract_property(valid_stats, 'standardized_momenta')
         x_cond_momenta = x_cond_stats['standardized_momenta']
-        print(generated_momenta)
 
-        fig4, axs = plt.subplots(1, 4, figsize=(16, 4))
+        fig4, axs = plt.subplots(2, 4, figsize=(16, 8))
         for i in range(4):
-            axs[i].boxplot([generated_momenta[:, i], x_cond_momenta[i]], labels=['Generated', 'Condition'])
-            axs[i].set_ylabel(r'$\mu$')
-            axs[i].set_title(f'Standardized Momenta {i+1}')
+            axs[0, i].boxplot([generated_momenta[:, i], x_cond_momenta[i]], labels=['Generated', 'Condition'])
+            axs[1, i].boxplot([valid_momenta[:, i], x_cond_momenta[i]], labels=['Validation', 'Condition'])
+            axs[0, i].set_ylabel(r'$\mu$')
+            axs[0, i].set_title(f'Standardized Momenta {i+1}')
+            axs[1, i].set_ylabel(r'$\mu$')
+            axs[1, i].set_title(f'Standardized Momenta {i+1}')
         fig4.tight_layout()
 
-    if 'two_point_correlation_from_voxel' in conditions:
+    two_point_correlation_condition = (
+        ('two_point_correlation_from_voxel' in conditions) or
+        ('two_point_correlation_from_slice' in conditions) or
+        ('two_point_correlation_from_voxel_slice' in conditions)
+    )
+
+    if two_point_correlation_condition:
         generated_tpc_dist, _ = extract_property(generated_stats, 'tpc_dist')
-        x_cond_tpc_dist, _ = extract_property(x_cond_stats, 'tpc_dist')
+        x_cond_tpc_dist = x_cond_stats['tpc_dist']
+        x_cond_tpc_dist = np.array(x_cond_tpc_dist)
 
         # tpc_dists have units of um
         generated_tpc_dist *= voxel_size_um
         x_cond_tpc_dist *= voxel_size_um
 
         generated_tpc_prob, _ = extract_property(generated_stats, 'tpc_prob')
-        x_cond_tpc_prob, _ = extract_property(x_cond_stats, 'tpc_prob')
+        x_cond_tpc_prob = x_cond_stats['tpc_prob']
 
         # x_generated = generated_tpc_dist.mean(axis=0)
         # x_x_cond = x_cond_tpc_dist.mean(axis=0)
 
-        fig4, ax = plt.subplots(1, 1, figsize=(6, 6))
-        nplots = generated_tpc_dist.shape[1] - 1
+        fig5, ax = plt.subplots(1, 1, figsize=(6, 6))
+        nplots = generated_tpc_dist.shape[0] - 1
         for i in range(nplots):
-            ax.plot(generated_tpc_dist[:, i], generated_tpc_prob[:, i], alpha=0.2, color='red')
-        ax.plot(generated_tpc_dist[:, nplots], generated_tpc_prob[:, nplots], alpha=0.2, color='red', label='Generated')
-        ax.plot(x_cond_tpc_dist[:, 0], x_cond_tpc_prob[:, 0], color='black', label='Condition')
+            ax.plot(generated_tpc_dist[i], generated_tpc_prob[i], alpha=0.2, color='red')
+        ax.plot(generated_tpc_dist[nplots], generated_tpc_prob[nplots], alpha=0.2, color='red', label='Generated')
+        print(len(x_cond_tpc_dist), len(x_cond_tpc_prob))
+        print(x_cond_tpc_prob) 
+        print(x_cond_tpc_dist)
+        ax.plot(x_cond_tpc_dist, x_cond_tpc_prob, color='black', label='Condition')
 
         ax.set_xlabel(r"$r$ $(\mu m)$")
         ax.set_ylabel(r"$(s_2 - \phi^2)/(\phi - \phi^2)$")
@@ -303,7 +323,9 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
     if fig3 is not None:
         fig3.savefig(savefolder / "pore_size_distribution_cdf.png")
     if fig4 is not None:
-        fig4.savefig(savefolder / "two_point_correlation.png")
+        fig4.savefig(savefolder / "psd_momenta.png")
+    if fig5 is not None:
+        fig5.savefig(savefolder / "two_point_correlation.png")
 
 
 def extract_property(data, property_name):
