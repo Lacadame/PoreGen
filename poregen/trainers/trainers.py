@@ -85,16 +85,10 @@ def pore_eval(cfg_path,  # noqa: C901
                 nconds = 1
             if y == "train":
                 # I'll sample y from the training set
-                x_cond = [loaded['datamodule'].train_dataset[i][0]
-                          for i in range(nconds)]
-                y = [loaded['datamodule'].train_dataset[i][1]
-                     for i in range(nconds)]
+                x_cond, y = zip(*[loaded['datamodule'].train_dataset[i] for i in range(nconds)])
             elif y == "valid":
                 # I'll sample y from the validation set
-                x_cond = [loaded['datamodule'].val_dataset[i][0]
-                          for i in range(nconds)]
-                y = [loaded['datamodule'].val_dataset[i][1]
-                     for i in range(nconds)]
+                x_cond, y = zip(*[loaded['datamodule'].val_dataset[i] for i in range(nconds)])
             else:
                 raise ValueError("Invalid y argument should be either 'train' or 'valid'")
             x_cond = torch.stack(x_cond)
@@ -120,6 +114,7 @@ def pore_eval(cfg_path,  # noqa: C901
     else:
         if y is not None:
             y = y[0]
+        print(y)
         generated_samples = loaded['trainer'].sample(
             nsamples=nsamples,
             maximum_batch_size=maximum_batch_size,
@@ -236,6 +231,7 @@ def pore_eval(cfg_path,  # noqa: C901
             with open(stats_folder / "xcond_stats.json", "w") as f:
                 json.dump(x_cond_stats_dict, f, cls=NumpyEncoder)
         else:
+            print(cond_stats)
             with open(stats_folder / "xcond_stats.json", "w") as f:
                 json.dump(cond_stats, f, cls=NumpyEncoder)
 
