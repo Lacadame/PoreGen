@@ -8,20 +8,18 @@ import lightning.pytorch.loggers as pl_loggers
 import transformers
 
 import diffsci.models
-from diffsci.models import KarrasModule, KarrasModuleConfig
 
 
-class PoreTrainer:
+class PoreVAETrainer:
     def __init__(self,
-                 models,
+                 model,
                  train_config,
                  output_config,
                  data_config=None,
                  load=None,
                  training=True,
                  fast_dev_run=False):
-        self.model = models['model']
-        self.autoencoder = models.get('autoencoder', None)
+        self.model = model
         self.train_config = train_config
         self.output_config = output_config
         self.data_config = data_config
@@ -30,11 +28,15 @@ class PoreTrainer:
         self.fast_dev_run = fast_dev_run
         self.checkpoint_path = None
 
-        # Create KarrasModuleConfig
-        karras_config = self.create_karras_config()
+        dim = data_config['dimension']
+        model_type = model['type']
+        assert model_type == 'ldm'
 
-        # Create or load KarrasModule
-        self.karras_module = self.create_or_load_karras_module(karras_config)
+        # get configs
+        param_dict = self.get_config_params()
+
+        # Create or load vae_module
+        self.vae_module = self.create_or_load_vae_module(param_dict, dim)
 
         if self.training:
             # Setup Lightning Trainer
@@ -42,46 +44,65 @@ class PoreTrainer:
             # Set up optimizer
             self.setup_optimizer()
 
-    def create_karras_config(self):
-        karras_type = self.train_config.get('karras_type', 'edm')
-        if karras_type == 'edm':
-            return KarrasModuleConfig.from_edm(**self.train_config.get('karras_config', {}))
-        elif karras_type == 'vp':
-            return KarrasModuleConfig.from_vp(**self.train_config.get('karras_config', {}))
-        elif karras_type == 've':
-            return KarrasModuleConfig.from_ve(**self.train_config.get('karras_config', {}))
-        else:
-            raise ValueError(f"Unsupported Karras config type: {karras_type}")
+    def get_config_params(self):
+        kl_weight = float(self.train_config.get('kl_weight', 1e-4))
+        losstype = self.train_config.get(
+            'target', diffsci.models.autoencoder.ldmlosses.LPIPSWithDiscriminator)
+        ddconfig_params = self.model.get('config', {})
+        param_dict = {
+            'kl_weight': kl_weight,
+            'target': losstype,
+            'ddconfig_params': ddconfig_params
+        }
+        return param_dict
 
-    def create_or_load_karras_module(self, karras_config):
-        if self.load is None:
-            # Create a new KarrasModule
-            return KarrasModule(
-                model=self.model,
-                config=karras_config,
-                conditional=self.train_config.get('conditional', False),
-                masked=self.train_config.get('masked', False),
-                autoencoder=self.autoencoder,
-                autoencoder_conditional=False
+    def create_or_load_vae_module(self, param_dict, dim):
+        ddconfig_params = param_dict['ddconfig_params']
+        kl_weight = param_dict['kl_weight']
+        losstype = param_dict['target']
+
+        if dim == 2:
+            vae_config = diffsci.models.nets.autoencoderldm2d.ddconfig(**ddconfig_params)
+            loss_config = diffsci.models.nets.autoencoderldm2d.lossconfig(
+                kl_weight=kl_weight, target=losstype)
+            if self.load is None:
+                # Create a new vae_module
+                return diffsci.models.nets.autoencoderldm2d.AutoencoderKL(vae_config, loss_config)
+            else:
+                # Load from checkpoint
+                checkpoint_path = self.get_checkpoint_path()
+                self.checkpoint_path = checkpoint_path
+                return diffsci.models.nets.autoencoderldm2d.AutoencoderKL.load_from_checkpoint(
+                    checkpoint_path,
+                    ddconfig=vae_config,
+                    lossconfig=loss_config
+                )
+
+        elif dim == 3:
+            vae_config = diffsci.models.nets.autoencoderldm3d.ddconfig(**ddconfig_params)
+            loss_config = diffsci.models.nets.autoencoderldm3d.lossconfig(
+                kl_weight=kl_weight, target=losstype
             )
+            if self.load is None:
+                # Create a new vae_module
+                return diffsci.models.nets.autoencoderldm3d.AutoencoderKL(vae_config, loss_config)
+            else:
+                # Load from checkpoint
+                checkpoint_path = self.get_checkpoint_path()
+                self.checkpoint_path = checkpoint_path
+                return diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
+                    checkpoint_path,
+                    ddconfig=vae_config,
+                    lossconfig=loss_config
+                )
         else:
-            # Load from checkpoint
-            checkpoint_path = self.get_checkpoint_path()
-            self.checkpoint_path = checkpoint_path
-            return KarrasModule.load_from_checkpoint(
-                checkpoint_path,
-                model=self.model,
-                config=karras_config,
-                conditional=self.train_config.get('conditional', False),
-                masked=self.train_config.get('masked', False),
-                autoencoder=self.autoencoder,
-                autoencoder_conditional=False
-            )
+            raise ValueError(f"Unsupported dimension: {dim}")
 
     def get_checkpoint_path(self):
         if self.load == "best":
             # Find the checkpoint with the lowest val_loss
             checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
+            print(checkpoint_dir)
             checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
             if not checkpoints:
                 raise ValueError("No checkpoints found in the specified directory.")
@@ -100,7 +121,7 @@ class PoreTrainer:
         optimizer_lr = optimizer_config.get('lr', 2*1e-5)
         optimizer_cls = get_optimizer_cls(optimizer_type)
         optimizer_args = optimizer_config.get('args', {})
-        optimizer = optimizer_cls(self.karras_module.parameters(),
+        optimizer = optimizer_cls(self.vae_module.parameters(),
                                   lr=optimizer_lr,
                                   **optimizer_args)
         # Create scheduler
@@ -115,7 +136,7 @@ class PoreTrainer:
                     num_training_steps=scheduler_config.get('num_training_steps', 10000),
                     num_cycles=scheduler_config.get('num_cycles', 1)
                 )
-                self.karras_module.scheduler = scheduler
+                self.vae_module.scheduler = scheduler
             elif scheduler_type == 'step':
                 scheduler = torch.optim.lr_scheduler.StepLR(
                     optimizer=optimizer,
@@ -131,7 +152,7 @@ class PoreTrainer:
                 raise NotImplementedError
         else:
             scheduler = None
-        self.karras_module.set_optimizer_and_scheduler(optimizer, scheduler)
+        self.vae_module.set_optimizer_and_scheduler(optimizer, scheduler)
 
     def setup_lightning_trainer(self):
         # Callbacks
@@ -169,49 +190,25 @@ class PoreTrainer:
 
     def train(self, datamodule):
         if self.train:
-            self.trainer.fit(model=self.karras_module, datamodule=datamodule)
+            self.trainer.fit(model=self.vae_module, datamodule=datamodule)
         else:
             print("Training is disabled. Use 'train=True' to enable training.")
 
     def test(self, test_loader):
-        self.trainer.test(self.karras_module, test_loader)
+        self.trainer.test(self.vae_module, test_loader)
 
     def predict(self, predict_loader):
-        return self.trainer.predict(self.karras_module, predict_loader)
+        return self.trainer.predict(self.vae_module, predict_loader)
 
-    def sample(self,
-               nsamples,
-               shape=None,
-               y=None,
-               guidance=1.0,
-               nsteps=100,
-               record_history=False,
-               maximum_batch_size=None,
-               integrator=None,
-               binarize=True,
-               return_numpy=True):
-        self.karras_module.eval()
-        if shape is None:
-            shape = self.get_shape_from_data_config()
-        samples = self.karras_module.sample(
-            nsamples,
-            shape,
-            y,
-            guidance,
-            nsteps,
-            record_history,
-            maximum_batch_size,
-            integrator
-        )
-        if binarize:
-            if record_history:
-                axes = list(range(2, len(samples.shape)))
-            else:
-                axes = list(range(1, len(samples.shape)))
-            samples = samples > samples.mean(axis=axes, keepdim=True)
-        if return_numpy:
-            samples = samples.cpu().detach().numpy()
-        return samples
+    def encode(self, x):
+        self.vae_module.eval()
+        z = self.vae_module.encode(x)
+        return z
+
+    def decode(self, x):
+        self.vae_module.eval()
+        x_rec = self.vae_module.decode(x)
+        return x_rec
 
     def get_shape_from_data_config(self):
         if self.data_config is None:

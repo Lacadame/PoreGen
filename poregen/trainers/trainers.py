@@ -5,6 +5,7 @@ import shutil
 import yaml
 import pathlib
 import json
+import os
 
 import torch
 import numpy as np
@@ -13,6 +14,7 @@ import poregen.data
 import poregen.features
 import poregen.models
 from .pore_trainer import PoreTrainer
+from .pore_vae_trainer import PoreVAETrainer
 
 
 KwargsType = dict[str, Any]
@@ -27,10 +29,41 @@ def pore_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=Fals
     datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
     datamodule.setup()
     models = poregen.models.get_model(cfg['model'])
+
+    filename = os.path.basename(cfg_path)
+    # Remove yaml extension
+    filename = filename.split('.')[0]
+    folder = os.path.join('/home/danilo/repos/PoreGen/savedmodels/experimental', filename)
+    cfg['output']['folder'] = folder
+
     trainer = PoreTrainer(
         models,
         cfg['training'],
         cfg['output'],
+        load=checkpoint_path,
+        fast_dev_run=fast_dev_run)
+    trainer.train(datamodule)
+
+
+def pore_vae_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=False):
+    with open(cfg_path, 'r') as f:
+        cfg = yaml.safe_load(f)
+    if data_path is None:
+        data_path = cfg['data']['path']
+    datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+    datamodule.setup()
+    # TODO: Infinite loop to check RAM memory usage of datamodule
+    filename = os.path.basename(cfg_path)
+    # Remove yaml extension
+    filename = filename.split('.')[0]
+    folder = os.path.join('/home/danilo/repos/PoreGen/savedmodels/experimental', filename)
+    cfg['output']['folder'] = folder
+
+    trainer = PoreVAETrainer(
+        cfg['model'],
+        cfg['training'],
+        cfg['output'],
+        cfg['data'],
         load=checkpoint_path,
         fast_dev_run=fast_dev_run)
     trainer.train(datamodule)
@@ -47,6 +80,28 @@ def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
         cfg['output'],
         load=checkpoint_path,
         data_config=cfg['data'])
+    res['trainer'] = trainer
+    if load_data:
+        if data_path is None:
+            data_path = cfg['data']['path']
+        datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+        datamodule.setup()
+        res['datamodule'] = datamodule
+    else:
+        res['datamodule'] = None
+    return res
+
+
+def pore_vae_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
+    with open(cfg_path, 'r') as f:
+        cfg = yaml.safe_load(f)
+    res = dict()
+    trainer = PoreVAETrainer(
+        cfg['model'],
+        cfg['training'],
+        cfg['output'],
+        cfg['data'],
+        load=checkpoint_path)
     res['trainer'] = trainer
     if load_data:
         if data_path is None:
@@ -239,6 +294,67 @@ def pore_eval(cfg_path,  # noqa: C901
     shutil.copy(cfg_path, stats_folder / "config.yaml")
 
 
+# for testing vae reconstruction
+def pore_vae_eval(cfg_path,  # noqa: C901
+                  checkpoint_path,
+                  nsamples: int = 4,
+                  x: str = 'valid',
+                  tag: None | int | str = None):
+    loaded = poregen.trainers.pore_vae_load(cfg_path,
+                                            checkpoint_path,
+                                            load_data=True)
+    if isinstance(x, str):
+        if x == "train":
+            # I'll sample x from the training set
+            x = [loaded['datamodule'].train_dataset[i] for i in range(nsamples)]
+        elif x == "valid":
+            # I'll sample x from the validation set
+            x = [loaded['datamodule'].val_dataset[i] for i in range(nsamples)]
+        else:
+            raise ValueError("Invalid x argument should be either 'train' or 'valid'")
+        x = torch.stack(x)
+    else:
+        pass  # Everything is fine, x is a tensor
+
+    z = loaded['trainer'].encode(x)
+    x_rec = loaded['trainer'].decode(z)
+
+    # Binarize x_rec
+    axes = list(range(1, len(x_rec.shape)))
+    x_rec_bin = x_rec > x_rec.mean(axis=axes, keepdim=True)
+
+    stats_folder = create_vae_stats_folder_from_checkpoint(
+        loaded['trainer'].checkpoint_path,
+        nsamples,
+        tag=tag)
+
+    input_folder = stats_folder / "input_samples"
+    z_folder = stats_folder / "latent_samples"
+    rec_folder = stats_folder / "reconstructed_samples"
+    bin_rec_folder = stats_folder / "reconstructed_samples_bin"
+
+    for folder in [input_folder, z_folder, rec_folder, bin_rec_folder]:
+        folder.mkdir(exist_ok=True)
+
+    # Save samples
+    for i in range(nsamples):
+        np.save(input_folder / f"{i:05d}_input.npy", x[i].cpu().numpy())
+        np.save(z_folder / f"{i:05d}_z.npy", z[i].cpu().numpy())
+        np.save(rec_folder / f"{i:05d}.npy", x_rec[i].cpu().numpy())
+        np.save(bin_rec_folder / f"{i:05d}.npy", x_rec_bin[i].cpu().numpy())
+
+    # Compute reconstruction errors
+    l1_rec_error = torch.mean(torch.abs(x_rec - x))
+    bin_rec_error = torch.mean(torch.abs(x_rec_bin - x))
+
+    # Save reconstruction errors
+    with open(stats_folder / "reconstruction_errors.json", "w") as f:
+        json.dump({"l1_rec_error": l1_rec_error.item(), "bin_rec_error": bin_rec_error.item()}, f, cls=NumpyEncoder)
+
+    # Save a copy of the config file
+    shutil.copy(cfg_path, stats_folder / "config.yaml")
+
+
 # Auxiliary functions
 
 def convert_condition_to_dict(y):
@@ -295,6 +411,18 @@ def create_stats_folder_from_checkpoint(
     stats_folder.mkdir(parents=True, exist_ok=True)
 
     return pathlib.Path(stats_folder)
+
+
+def create_vae_stats_folder_from_checkpoint(
+        checkpoint_path,
+        nsamples,
+        tag: None | int = None):
+
+    return create_stats_folder_from_checkpoint(
+        checkpoint_path,
+        nsamples,
+        integrator='vae',
+        tag=tag)
 
 
 class NumpyEncoder(json.JSONEncoder):
