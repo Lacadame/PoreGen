@@ -316,12 +316,15 @@ def pore_vae_eval(cfg_path,  # noqa: C901
     else:
         pass  # Everything is fine, x is a tensor
 
+    vae_module = loaded['trainer'].vae_module
+    x = x.to(vae_module.device)
     z = loaded['trainer'].encode(x)
     x_rec = loaded['trainer'].decode(z)
 
     # Binarize x_rec
     axes = list(range(1, len(x_rec.shape)))
     x_rec_bin = x_rec > x_rec.mean(axis=axes, keepdim=True)
+    x_rec_bin = x_rec_bin.float()
 
     stats_folder = create_vae_stats_folder_from_checkpoint(
         loaded['trainer'].checkpoint_path,
@@ -339,9 +342,9 @@ def pore_vae_eval(cfg_path,  # noqa: C901
     # Save samples
     for i in range(nsamples):
         np.save(input_folder / f"{i:05d}_input.npy", x[i].cpu().numpy())
-        np.save(z_folder / f"{i:05d}_z.npy", z[i].cpu().numpy())
-        np.save(rec_folder / f"{i:05d}.npy", x_rec[i].cpu().numpy())
-        np.save(bin_rec_folder / f"{i:05d}.npy", x_rec_bin[i].cpu().numpy())
+        np.save(z_folder / f"{i:05d}_z.npy", z[i].detach().cpu().numpy())
+        np.save(rec_folder / f"{i:05d}.npy", x_rec[i].detach().cpu().numpy())
+        np.save(bin_rec_folder / f"{i:05d}.npy", x_rec_bin[i].detach().cpu().numpy())
 
     # Compute reconstruction errors
     l1_rec_error = torch.mean(torch.abs(x_rec - x))
