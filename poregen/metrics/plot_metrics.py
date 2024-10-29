@@ -305,7 +305,7 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
             ax.plot(generated_tpc_dist[i], generated_tpc_prob[i], alpha=0.2, color='red')
         ax.plot(generated_tpc_dist[nplots], generated_tpc_prob[nplots], alpha=0.2, color='red', label='Generated')
         print(len(x_cond_tpc_dist), len(x_cond_tpc_prob))
-        print(x_cond_tpc_prob) 
+        print(x_cond_tpc_prob)
         print(x_cond_tpc_dist)
         ax.plot(x_cond_tpc_dist, x_cond_tpc_prob, color='black', label='Condition')
 
@@ -326,6 +326,39 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
         fig4.savefig(savefolder / "psd_momenta.png")
     if fig5 is not None:
         fig5.savefig(savefolder / "two_point_correlation.png")
+
+
+def plot_vae_reconstruction(datapath, nsamples=1, tag=None):
+
+    input_path = f"{datapath}/input_samples"
+    bin_rec_path = f"{datapath}/reconstructed_samples_bin"
+    input = np.stack([np.load(os.path.join(
+        input_path, f"{i:05d}_input.npy")) for i in range(nsamples)])
+    bin_rec = np.stack([np.load(os.path.join(
+        bin_rec_path, f"{i:05d}.npy")) for i in range(nsamples)])
+
+    savefolder = pathlib.Path(f"{datapath}/figures")
+    os.makedirs(savefolder, exist_ok=True)
+
+    for i in range(nsamples):
+        x = 1 - input[i]
+        x_rec = 1 - bin_rec[i]
+
+        fig1 = plt.figure()
+        ax = fig1.add_subplot(111, projection='3d')
+        ax.voxels(x[0], facecolors='blue', alpha=0.2)
+        fig1.tight_layout()
+        ax.set_title(f"Input {i+1}")
+        plt.show()
+        fig1.savefig(savefolder / f"input{i+1}.png")
+
+        fig2 = plt.figure()
+        ax = fig2.add_subplot(111, projection='3d')
+        ax.voxels(x_rec[0], facecolors='blue', alpha=0.2)
+        fig2.tight_layout()
+        ax.set_title(f"Reconstructed {i+1}")
+        plt.show()
+        fig2.savefig(savefolder / f"reconstructed{i+1}.png")
 
 
 def extract_property(data, property_name):
