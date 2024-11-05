@@ -161,6 +161,7 @@ class PoreTrainer:
             val_check_interval=self.train_config.get('val_check_interval', 1.0),
             precision=self.train_config.get('precision', 32),
             gradient_clip_val=self.train_config.get('gradient_clip_val', None),
+            accumulate_grad_batches=self.train_config.get('accumulate_grad_batches', 1),
             strategy=self.train_config.get('strategy', 'auto'),
             accelerator=self.train_config.get('accelerator', 'auto'),
             devices=self.train_config.get('devices', 'auto'),
