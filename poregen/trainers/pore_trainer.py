@@ -19,7 +19,8 @@ class PoreTrainer:
                  data_config=None,
                  load=None,
                  training=True,
-                 fast_dev_run=False):
+                 fast_dev_run=False,
+                 load_on_fit=False):
         self.model = models['model']
         self.autoencoder = models.get('autoencoder', None)
         self.train_config = train_config
@@ -28,7 +29,9 @@ class PoreTrainer:
         self.load = load
         self.training = training
         self.fast_dev_run = fast_dev_run
-        self.checkpoint_path = None
+        self.load_on_fit = load_on_fit
+
+        self.checkpoint_path = self.get_checkpoint_path()
 
         # Create KarrasModuleConfig
         karras_config = self.create_karras_config()
@@ -54,7 +57,7 @@ class PoreTrainer:
             raise ValueError(f"Unsupported Karras config type: {karras_type}")
 
     def create_or_load_karras_module(self, karras_config):
-        if self.load is None:
+        if self.load is None and not self.load_on_fit:
             # Create a new KarrasModule
             return KarrasModule(
                 model=self.model,
@@ -66,10 +69,8 @@ class PoreTrainer:
             )
         else:
             # Load from checkpoint
-            checkpoint_path = self.get_checkpoint_path()
-            self.checkpoint_path = checkpoint_path
             return KarrasModule.load_from_checkpoint(
-                checkpoint_path,
+                self.checkpoint_path,
                 model=self.model,
                 config=karras_config,
                 conditional=self.train_config.get('conditional', False),
@@ -79,7 +80,9 @@ class PoreTrainer:
             )
 
     def get_checkpoint_path(self):
-        if self.load == "best":
+        if self.load is None:
+            return None
+        elif self.load == "best":
             # Find the checkpoint with the lowest val_loss
             checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
             checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
@@ -87,6 +90,14 @@ class PoreTrainer:
                 raise ValueError("No checkpoints found in the specified directory.")
             best_checkpoint = min(checkpoints, key=lambda x: float(x.split('val_loss=')[-1].split('.ckpt')[0]))
             return best_checkpoint
+        elif self.load == "latest":
+            # Find the latest checkpoint
+            checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
+            checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
+            if not checkpoints:
+                raise ValueError("No checkpoints found in the specified directory.")
+            latest_checkpoint = max(checkpoints, key=os.path.getctime)
+            return latest_checkpoint
         elif os.path.isfile(self.load):
             # Load the specified checkpoint
             return self.load
@@ -170,7 +181,10 @@ class PoreTrainer:
 
     def train(self, datamodule):
         if self.train:
-            self.trainer.fit(model=self.karras_module, datamodule=datamodule)
+            ckpt_path = self.checkpoint_path if self.load_on_fit else None
+            self.trainer.fit(model=self.karras_module,
+                             datamodule=datamodule,
+                             ckpt_path=ckpt_path)
         else:
             print("Training is disabled. Use 'train=True' to enable training.")
 

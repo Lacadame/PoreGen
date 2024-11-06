@@ -21,7 +21,11 @@ KwargsType = dict[str, Any]
 ConditionType = str | dict[str, torch.Tensor] | torch.Tensor
 
 
-def pore_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=False):
+def pore_train(cfg_path,
+               data_path=None,
+               checkpoint_path=None,
+               fast_dev_run=False,
+               load_on_fit=False):
     with open(cfg_path, 'r') as f:
         cfg = yaml.safe_load(f)
     if data_path is None:
@@ -33,7 +37,9 @@ def pore_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=Fals
     filename = os.path.basename(cfg_path)
     # Remove yaml extension
     filename = filename.split('.')[0]
+    basepath = pathlib.Path(cfg_path).parent.parent.parent
     folder = os.path.join('/home/danilo/repos/PoreGen/savedmodels/experimental', filename)
+    folder = basepath/'savedmodels/experimental'/filename
     cfg['output']['folder'] = folder
 
     trainer = PoreTrainer(
@@ -41,7 +47,8 @@ def pore_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=Fals
         cfg['training'],
         cfg['output'],
         load=checkpoint_path,
-        fast_dev_run=fast_dev_run)
+        fast_dev_run=fast_dev_run,
+        load_on_fit=load_on_fit)
     trainer.train(datamodule)
 
 
