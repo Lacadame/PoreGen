@@ -57,7 +57,7 @@ class PoreTrainer:
             raise ValueError(f"Unsupported Karras config type: {karras_type}")
 
     def create_or_load_karras_module(self, karras_config):
-        if self.load is None and not self.load_on_fit:
+        if self.load is None or self.load_on_fit:
             # Create a new KarrasModule
             return KarrasModule(
                 model=self.model,

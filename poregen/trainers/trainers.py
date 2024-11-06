@@ -38,7 +38,6 @@ def pore_train(cfg_path,
     # Remove yaml extension
     filename = filename.split('.')[0]
     basepath = pathlib.Path(cfg_path).parent.parent.parent
-    folder = os.path.join('/home/danilo/repos/PoreGen/savedmodels/experimental', filename)
     folder = basepath/'savedmodels/experimental'/filename
     cfg['output']['folder'] = folder
 
@@ -63,7 +62,8 @@ def pore_vae_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=
     filename = os.path.basename(cfg_path)
     # Remove yaml extension
     filename = filename.split('.')[0]
-    folder = os.path.join('/home/danilo/repos/PoreGen/savedmodels/experimental', filename)
+    basepath = pathlib.Path(cfg_path).parent.parent.parent
+    folder = basepath/'savedmodels/experimental'/filename
     cfg['output']['folder'] = folder
 
     trainer = PoreVAETrainer(
