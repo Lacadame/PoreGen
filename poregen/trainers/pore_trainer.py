@@ -86,6 +86,8 @@ class PoreTrainer:
             # Find the checkpoint with the lowest val_loss
             checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
             checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
+            # Remove last.ckpt
+            checkpoints = [ckpt for ckpt in checkpoints if not ckpt.endswith('last.ckpt')]
             if not checkpoints:
                 raise ValueError("No checkpoints found in the specified directory.")
             best_checkpoint = min(checkpoints, key=lambda x: float(x.split('val_loss=')[-1].split('.ckpt')[0]))
@@ -98,6 +100,16 @@ class PoreTrainer:
                 raise ValueError("No checkpoints found in the specified directory.")
             latest_checkpoint = max(checkpoints, key=os.path.getctime)
             return latest_checkpoint
+        elif self.load == "last":
+            # Get the last.ckpt file
+            checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
+            checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
+            # Remove best.ckpt
+            checkpoints = [ckpt for ckpt in checkpoints if ckpt.endswith('last.ckpt')]
+            if not checkpoints:
+                raise ValueError("No checkpoints found in the specified directory.")
+            last_checkpoint = checkpoints[0]
+            return last_checkpoint
         elif os.path.isfile(self.load):
             # Load the specified checkpoint
             return self.load
@@ -153,7 +165,8 @@ class PoreTrainer:
             filename='model-{epoch:03d}-{val_loss:.6f}',
             save_top_k=self.train_config.get('save_top_k', 3),
             monitor='val_loss',
-            mode='min'
+            mode='min',
+            save_last=True
         )
         lr_monitor = pl_callbacks.LearningRateMonitor(logging_interval='step')
 
