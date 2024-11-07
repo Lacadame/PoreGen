@@ -127,3 +127,6 @@ repopack-output.txt
 
 # Delete the yaml config files
 configs/*
+
+# queue mangaer
+queue_manager.log

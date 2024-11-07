@@ -1,5 +1,6 @@
 import os
 import glob
+import warnings
 
 import torch
 import lightning
@@ -89,7 +90,8 @@ class PoreTrainer:
             # Remove last.ckpt
             checkpoints = [ckpt for ckpt in checkpoints if not ckpt.endswith('last.ckpt')]
             if not checkpoints:
-                raise ValueError("No checkpoints found in the specified directory.")
+                warnings.warn("No checkpoints found in the specified directory. Starting from scratch.")
+                return None
             best_checkpoint = min(checkpoints, key=lambda x: float(x.split('val_loss=')[-1].split('.ckpt')[0]))
             return best_checkpoint
         elif self.load == "latest":
@@ -97,7 +99,8 @@ class PoreTrainer:
             checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
             checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
             if not checkpoints:
-                raise ValueError("No checkpoints found in the specified directory.")
+                warnings.warn("No checkpoints found in the specified directory. Starting from scratch.")
+                return None
             latest_checkpoint = max(checkpoints, key=os.path.getctime)
             return latest_checkpoint
         elif self.load == "last":
@@ -107,7 +110,8 @@ class PoreTrainer:
             # Remove best.ckpt
             checkpoints = [ckpt for ckpt in checkpoints if ckpt.endswith('last.ckpt')]
             if not checkpoints:
-                raise ValueError("No checkpoints found in the specified directory.")
+                warnings.warn("No last checkpoints found in the specified directory. Starting from scratch.")
+                return None
             last_checkpoint = checkpoints[0]
             return last_checkpoint
         elif os.path.isfile(self.load):

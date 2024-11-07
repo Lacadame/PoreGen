@@ -1,6 +1,6 @@
 import pathlib
 import click
-
+import sys
 import poregen.data
 import poregen.features
 import poregen.models
@@ -24,18 +24,27 @@ def train(datapath, cfgpath, checkpoint_path, fast_dev_run, load_on_fit):
     """
     Train a pore generation model using the specified data and configuration.
     """
-    if datapath is not None:
-        datapath = pathlib.Path(datapath)
-    cfgpath = pathlib.Path(cfgpath)
+    try:
+        if datapath is not None:
+            datapath = pathlib.Path(datapath)
+        cfgpath = pathlib.Path(cfgpath)
 
-    # Run training
-    poregen.trainers.pore_train(cfgpath,
-                                datapath,
-                                checkpoint_path=checkpoint_path,
-                                fast_dev_run=fast_dev_run,
-                                load_on_fit=load_on_fit)
+        # Run training
+        poregen.trainers.pore_train(cfgpath,
+                                    datapath,
+                                    checkpoint_path=checkpoint_path,
+                                    fast_dev_run=fast_dev_run,
+                                    load_on_fit=load_on_fit)
 
-    click.echo("Training completed.")
+        click.echo("Training completed.")
+        sys.exit(0)  # Successful completion
+
+    except KeyboardInterrupt:
+        click.echo("Training interrupted by user.")
+        sys.exit(1)  # Interrupted
+    except Exception as e:
+        click.echo(f"Training failed with error: {str(e)}")
+        sys.exit(2)  # Other error
 
 
 if __name__ == '__main__':
