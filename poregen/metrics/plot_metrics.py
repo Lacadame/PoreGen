@@ -53,6 +53,9 @@ def plot_unconditional_metrics(datapath, voxel_size_um=None):
 
     generated_log_permeabilities = np.log10(np.prod(generated_permeabilities, axis=1)**(1/3))
     valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
+    generated_log_permeabilities = generated_log_permeabilities[np.isfinite(generated_log_permeabilities)]
+    valid_log_permeabilities = valid_log_permeabilities[np.isfinite(valid_log_permeabilities)]
+
     generated_log_mean_pore_size = np.log10(np.exp(generated_log_momenta[:, 0]))
     valid_log_mean_pore_size = np.log10(np.exp(valid_log_momenta[:, 0]))
 

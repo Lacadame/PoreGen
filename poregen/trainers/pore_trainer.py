@@ -40,6 +40,9 @@ class PoreTrainer:
         # Create or load KarrasModule
         self.karras_module = self.create_or_load_karras_module(karras_config)
 
+        # TODO: Make this cleaner
+        self.karras_module.norm = train_config.get('vae_norm', 1)
+
         if self.training:
             # Setup Lightning Trainer
             self.setup_lightning_trainer()
@@ -88,7 +91,8 @@ class PoreTrainer:
             checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
             checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
             # Remove last.ckpt
-            checkpoints = [ckpt for ckpt in checkpoints if not ckpt.endswith('last.ckpt')]
+            # checkpoints = [ckpt for ckpt in checkpoints if not ckpt.endswith('last.ckpt')]
+            checkpoints = [ckpt for ckpt in checkpoints if "last" not in ckpt]
             if not checkpoints:
                 warnings.warn("No checkpoints found in the specified directory. Starting from scratch.")
                 return None
