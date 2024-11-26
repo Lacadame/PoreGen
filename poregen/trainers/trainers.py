@@ -131,7 +131,8 @@ def pore_eval(cfg_path,  # noqa: C901
               extractor_kwargs: dict[str, KwargsType] = {},
               y: ConditionType = None,
               guided: bool = False,
-              tag: None | int | str = None):
+              tag: None | int | str = None,
+              device_id: int = 0):
     loaded = poregen.trainers.pore_load(cfg_path,
                                         checkpoint_path,
                                         load_data=True)
@@ -156,6 +157,10 @@ def pore_eval(cfg_path,  # noqa: C901
             x_cond = torch.stack(x_cond)
         else:
             pass  # Everything is fine, y is a tensor
+
+    device = torch.device(f'cuda:{device_id}')
+    module = loaded['trainer'].karras_module
+    module.to(device)
 
     stats_folder = create_stats_folder_from_checkpoint(
         loaded['trainer'].checkpoint_path,
@@ -218,12 +223,12 @@ def pore_eval(cfg_path,  # noqa: C901
                           'porosity',
                           'surface_area_density_from_slice']
 
-    # A hack to put the voxel size for porosimetry_from_pnm
-    if 'porosimetry_from_pnm' in extractors:
-        if 'porosimetry_from_pnm' in extractor_kwargs:
-            extractor_kwargs['porosimetry_from_pnm']['voxel_size'] = voxel_size_um*1e-6
+    # A hack to put the voxel size for permeability_from_pnm
+    if 'permeability_from_pnm' in extractors:
+        if 'permeability_from_pnm' in extractor_kwargs:
+            extractor_kwargs['permeability_from_pnm']['voxel_length'] = voxel_size_um*1e-6
         else:
-            extractor_kwargs['porosimetry_from_pnm'] = {'voxel_size': voxel_size_um*1e-6}
+            extractor_kwargs['permeability_from_pnm'] = {'voxel_length': voxel_size_um*1e-6}
     extractor = poregen.features.feature_extractors.make_composite_feature_extractor(
         extractors,
         extractor_kwargs=extractor_kwargs
@@ -306,7 +311,8 @@ def pore_vae_eval(cfg_path,  # noqa: C901
                   checkpoint_path,
                   nsamples: int = 4,
                   x: str = 'valid',
-                  tag: None | int | str = None):
+                  tag: None | int | str = None,
+                  device_id: int = 0):
     loaded = poregen.trainers.pore_vae_load(cfg_path,
                                             checkpoint_path,
                                             load_data=True)
@@ -323,7 +329,9 @@ def pore_vae_eval(cfg_path,  # noqa: C901
     else:
         pass  # Everything is fine, x is a tensor
 
+    device = torch.device(f'cuda:{device_id}')
     vae_module = loaded['trainer'].vae_module
+    vae_module.to(device)
     x = x.to(vae_module.device)
     z = loaded['trainer'].encode(x)
     x_rec = loaded['trainer'].decode(z)
