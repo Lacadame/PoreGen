@@ -99,7 +99,7 @@ def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
     return res
 
 
-def pore_vae_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
+def pore_vae_load(cfg_path, checkpoint_path, load_data=False, data_path=None, image_size=None):
     with open(cfg_path, 'r') as f:
         cfg = yaml.safe_load(f)
     res = dict()
@@ -114,6 +114,8 @@ def pore_vae_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
         if data_path is None:
             data_path = cfg['data']['path']
         datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+        if image_size is not None:
+            datamodule.cfg['image_size'] = image_size
         datamodule.setup()
         res['datamodule'] = datamodule
     else:
@@ -311,20 +313,26 @@ def pore_vae_eval(cfg_path,  # noqa: C901
                   checkpoint_path,
                   nsamples: int = 4,
                   x: str = 'valid',
+                  data_path: str = None,
+                  image_size: int = None,
                   tag: None | int | str = None,
-                  device_id: int = 0):
+                  device_id: int = 0,
+                  maximum_batch_size: int = 1):
     loaded = poregen.trainers.pore_vae_load(cfg_path,
                                             checkpoint_path,
-                                            load_data=True)
+                                            load_data=True,
+                                            data_path=data_path,
+                                            image_size=image_size)
     if isinstance(x, str):
         if x == "train":
             # I'll sample x from the training set
-            x = [loaded['datamodule'].train_dataset[i] for i in range(nsamples)]
+            dataset = loaded['datamodule'].train_dataset
         elif x == "valid":
             # I'll sample x from the validation set
-            x = [loaded['datamodule'].val_dataset[i] for i in range(nsamples)]
+            dataset = loaded['datamodule'].val_dataset
         else:
             raise ValueError("Invalid x argument should be either 'train' or 'valid'")
+        x = [dataset[i] for i in range(nsamples)]
         x = torch.stack(x)
     else:
         pass  # Everything is fine, x is a tensor
@@ -332,14 +340,26 @@ def pore_vae_eval(cfg_path,  # noqa: C901
     device = torch.device(f'cuda:{device_id}')
     vae_module = loaded['trainer'].vae_module
     vae_module.to(device)
-    x = x.to(vae_module.device)
-    z = loaded['trainer'].encode(x)
-    x_rec = loaded['trainer'].decode(z)
+    x = x.to(device)
+
+    # Split data into batches
+    batches = torch.split(x, maximum_batch_size)
+    z_list = []
+    x_rec_list = []
+    x_rec_bin_list = []
+
+    for i, batch in enumerate(batches):
+        batch = batch.to(vae_module.device)
+        z_batch = loaded['trainer'].encode(batch)
+        x_rec_batch = loaded['trainer'].decode(z_batch)
+        z_list.append(z_batch.detach().cpu())
+        x_rec_list.append(x_rec_batch.detach().cpu())
 
     # Binarize x_rec
-    axes = list(range(1, len(x_rec.shape)))
-    x_rec_bin = x_rec > x_rec.mean(axis=axes, keepdim=True)
-    x_rec_bin = x_rec_bin.float()
+    axes = list(range(1, len(x_rec_list[0].shape)))
+    for i in range(nsamples):
+        x_rec_bin_list.append(x_rec_list[i] > x_rec_list[i].mean(axis=axes, keepdim=True))
+        x_rec_bin_list[i] = x_rec_bin_list[i].float()
 
     stats_folder = create_vae_stats_folder_from_checkpoint(
         loaded['trainer'].checkpoint_path,
@@ -357,17 +377,25 @@ def pore_vae_eval(cfg_path,  # noqa: C901
     # Save samples
     for i in range(nsamples):
         np.save(input_folder / f"{i:05d}_input.npy", x[i].cpu().numpy())
-        np.save(z_folder / f"{i:05d}_z.npy", z[i].detach().cpu().numpy())
-        np.save(rec_folder / f"{i:05d}.npy", x_rec[i].detach().cpu().numpy())
-        np.save(bin_rec_folder / f"{i:05d}.npy", x_rec_bin[i].detach().cpu().numpy())
+        np.save(z_folder / f"{i:05d}_z.npy", z_list[i].detach().cpu().numpy())
+        np.save(rec_folder / f"{i:05d}.npy", x_rec_list[i].detach().cpu().numpy())
+        np.save(bin_rec_folder / f"{i:05d}.npy", x_rec_bin_list[i].detach().cpu().numpy())
 
     # Compute reconstruction errors
-    l1_rec_error = torch.mean(torch.abs(x_rec - x))
-    bin_rec_error = torch.mean(torch.abs(x_rec_bin - x))
+    l1_rec_error = torch.zeros(nsamples)
+    bin_rec_error = torch.zeros(nsamples)
+
+    for i in range(nsamples):
+        l1_rec_error[i] = torch.mean(torch.abs(x_rec_list[i] - x.detach().cpu()[i]))
+        bin_rec_error[i] = torch.mean(torch.abs(x_rec_bin_list[i] - x.detach().cpu()[i]))
+
+    # Convert the tensors to Python lists before saving
+    l1_rec_error_list = l1_rec_error.tolist()
+    bin_rec_error_list = bin_rec_error.tolist()
 
     # Save reconstruction errors
     with open(stats_folder / "reconstruction_errors.json", "w") as f:
-        json.dump({"l1_rec_error": l1_rec_error.item(), "bin_rec_error": bin_rec_error.item()}, f, cls=NumpyEncoder)
+        json.dump({"l1_rec_error": l1_rec_error_list, "bin_rec_error": bin_rec_error_list}, f, cls=NumpyEncoder)
 
     # Save a copy of the config file
     shutil.copy(cfg_path, stats_folder / "config.yaml")
