@@ -220,7 +220,7 @@ class PoreTrainer:
                shape=None,
                y=None,
                guidance=1.0,
-               nsteps=100,
+               nsteps=None,
                record_history=False,
                maximum_batch_size=None,
                integrator=None,
@@ -229,6 +229,12 @@ class PoreTrainer:
         self.karras_module.eval()
         if shape is None:
             shape = self.get_shape_from_data_config()
+        if nsteps is None:
+            if integrator == 'karras':
+                nsteps = 256
+            else:
+                nsteps = 50
+        print('nsteps:', nsteps)
         samples = self.karras_module.sample(
             nsamples,
             shape,
