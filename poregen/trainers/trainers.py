@@ -76,7 +76,7 @@ def pore_vae_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=
     trainer.train(datamodule)
 
 
-def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
+def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None, image_size: int | None = None):
     with open(cfg_path, 'r') as f:
         cfg = yaml.safe_load(f)
     res = dict()
@@ -91,6 +91,8 @@ def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None):
     if load_data:
         if data_path is None:
             data_path = cfg['data']['path']
+        if image_size is not None:
+            cfg['data']['image_size'] = image_size  # FIXME: Do a less ugly hack
         datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
         datamodule.setup()
         res['datamodule'] = datamodule
@@ -134,10 +136,13 @@ def pore_eval(cfg_path,  # noqa: C901
               y: ConditionType = None,
               guided: bool = False,
               tag: None | int | str = None,
-              device_id: int = 0):
+              device_id: int = 0,
+              image_size: None | int = None):
+    # FIXME: change shape for be also possibly an int
     loaded = poregen.trainers.pore_load(cfg_path,
                                         checkpoint_path,
-                                        load_data=True)
+                                        load_data=True,
+                                        image_size=image_size)
     if nsamples_valid is None:
         nsamples_valid = nsamples
     voxel_size_um = loaded['datamodule'].voxel_size_um
@@ -177,18 +182,18 @@ def pore_eval(cfg_path,  # noqa: C901
                 nsamples=1,
                 maximum_batch_size=maximum_batch_size,
                 integrator=integrator,
-                y=y[i]
+                y=y[i],
             )
             generated_samples[i] = generated_sample[0]
     else:
         if y is not None:
             y = y[0]
-        print(y)
+        print(y, 'CONDITION')
         generated_samples = loaded['trainer'].sample(
             nsamples=nsamples,
             maximum_batch_size=maximum_batch_size,
             integrator=integrator,
-            y=y
+            y=y,
             )
 
     # If x_valid exists, I'll add it to the validation samples
@@ -209,6 +214,8 @@ def pore_eval(cfg_path,  # noqa: C901
                          for i in range(nsamples_valid)]
     valid_samples = torch.stack(valid_samples).cpu().numpy()
 
+    print(valid_samples.shape, 'VALID SHAPE')
+    print(generated_samples.shape, 'GENERATED SHAPE')
     if x_cond is not None:
         x_cond = x_cond[0].cpu().numpy()
 
