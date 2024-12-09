@@ -42,9 +42,9 @@ def train(datapath, cfgpath, checkpoint_path, fast_dev_run, load_on_fit):
     except KeyboardInterrupt:
         click.echo("Training interrupted by user.")
         sys.exit(1)  # Interrupted
-    except Exception as e:
-        click.echo(f"Training failed with error: {str(e)}")
-        sys.exit(2)  # Other error
+#    except Exception as e:
+#        click.echo(f"Training failed with error: {str(e)}")
+#        sys.exit(2)  # Other error
 
 
 if __name__ == '__main__':

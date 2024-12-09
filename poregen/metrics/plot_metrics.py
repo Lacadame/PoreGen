@@ -364,6 +364,48 @@ def plot_vae_reconstruction(datapath, nsamples=1, tag=None):
         fig2.savefig(savefolder / f"reconstructed{i+1}.png")
 
 
+def plot_vae_reconstruction_errors(datapath: str | list[str],
+                                   savefolder: str):
+    if isinstance(datapath, str):
+        datapath = [datapath]
+
+    l1_rec_error = []
+    bin_rec_error = []
+
+    for i, path in enumerate(datapath):
+        assert os.path.isdir(path), f"{path} is not a directory"
+
+        # Load reconstruction errors
+        with open(f"{path}/reconstruction_errors.json", "r") as f:
+            rec_error = json.load(f)
+
+        l1_rec_error.append(rec_error['l1_rec_error'])
+        bin_rec_error.append(rec_error['bin_rec_error'])
+
+    # Ensure savefolder exists
+    savefolder = pathlib.Path(savefolder)
+    os.makedirs(savefolder, exist_ok=True)
+
+    # Plot reconstruction errors
+    ndata = len(l1_rec_error)
+    fig, axs = plt.subplots(ndata, 2, figsize=(12, 4 * ndata))  # Adjust height based on number of datasets
+
+    for j in range(ndata):
+        axs[j, 0].hist(l1_rec_error[j], bins=20, density=True, color='blue', alpha=0.7)
+        axs[j, 0].set_title(f'L1 Reconstruction Error {j+1}')
+        axs[j, 0].set_xlabel('L1 Reconstruction Error')
+        axs[j, 0].set_ylabel('Density')
+
+        axs[j, 1].hist(bin_rec_error[j], bins=20, density=True, color='green', alpha=0.7)
+        axs[j, 1].set_title(f'Binary Reconstruction Error {j+1}')
+        axs[j, 1].set_xlabel('Binary Reconstruction Error')
+        axs[j, 1].set_ylabel('Density')
+
+    fig.tight_layout()
+    fig.savefig(savefolder / "reconstruction_errors.png")
+    print(f"Reconstruction error plots saved to {savefolder / 'reconstruction_errors.png'}")
+
+
 def extract_property(data, property_name):
     property_list = []
     input_list = []

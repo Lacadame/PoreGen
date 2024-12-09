@@ -6,7 +6,7 @@ import poregen.trainers
 
 def main():
 
-    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20241205-bps-ldm-bentheimer256-por_cond.yaml"
+    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20241202-bps-ldm-bentheimer256.yaml"
 
     nsamples = 100
     poregen.trainers.pore_eval(
@@ -15,8 +15,8 @@ def main():
         nsamples=nsamples,
         maximum_batch_size=1,
         device_id=6,
-        y='train',
-        guided=True)
+        integrator='karras',
+        tag='256steps')
 
 
 if __name__ == "__main__":

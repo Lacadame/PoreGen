@@ -7,3 +7,4 @@ from . import permeability
 from .feature_extractors import (make_feature_extractor,
                                  make_composite_feature_extractor,
                                  AVAILABLE_EXTRACTORS)
+from .dataset_variance import diagonal_variance
