@@ -8,4 +8,5 @@ from .plot_metrics import (plot_unconditional_metrics, plot_conditional_metrics,
 from .forest_fire import ForestFire3D
 from .power_spectrum import (calculate_3d_radial_spectrum,
                              cluster_spectra, predict_cluster_spectra,
-                             save_cluster_model, load_cluster_model)
+                             save_cluster_model, load_cluster_model,
+                             power_spectrum_criteria)

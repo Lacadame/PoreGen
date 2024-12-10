@@ -11,6 +11,8 @@ import transformers
 import diffsci.models
 from diffsci.models import KarrasModule, KarrasModuleConfig
 
+from poregen.metrics import power_spectrum_criteria
+
 
 class PoreTrainer:
     def __init__(self,
@@ -143,8 +145,8 @@ class PoreTrainer:
                 scheduler = transformers.get_cosine_with_hard_restarts_schedule_with_warmup(
                     optimizer=optimizer,
                     num_warmup_steps=scheduler_config.get('num_warmup_steps', 1000),
-                    num_training_steps=scheduler_config.get('num_training_steps', 10000),
-                    num_cycles=scheduler_config.get('num_cycles', 1)
+                    num_training_steps=scheduler_config.get('num_training_steps', 100000),
+                    num_cycles=scheduler_config.get('num_cycles', 10)
                 )
                 self.karras_module.scheduler = scheduler
             elif scheduler_type == 'step':
@@ -225,7 +227,8 @@ class PoreTrainer:
                maximum_batch_size=None,
                integrator=None,
                binarize=True,
-               return_numpy=True):
+               return_numpy=True,
+               filter_spectra=False):
         self.karras_module.eval()
         if shape is None:
             shape = self.get_shape_from_data_config()
@@ -235,16 +238,31 @@ class PoreTrainer:
             else:
                 nsteps = 50
         print('nsteps:', nsteps)
-        samples = self.karras_module.sample(
-            nsamples,
-            shape,
-            y,
-            guidance,
-            nsteps,
-            record_history,
-            maximum_batch_size,
-            integrator
-        )
+        if not filter_spectra:
+            samples = self.karras_module.sample(
+                nsamples,
+                shape,
+                y,
+                guidance,
+                nsteps,
+                record_history,
+                maximum_batch_size,
+                integrator
+            )
+        else:
+            samples = self.karras_module.sample_and_filter(
+                nsamples=nsamples,
+                shape=shape,
+                filter_fn=power_spectrum_criteria,
+                y=y,
+                guidance=guidance,
+                nsteps=nsteps,
+                record_history=record_history,
+                maximum_batch_size=maximum_batch_size,
+                integrator=integrator,
+                return_only_positives=True,
+                move_to_cpu=True
+            )['samples']
         if binarize:
             if record_history:
                 axes = list(range(2, len(samples.shape)))
@@ -252,7 +270,7 @@ class PoreTrainer:
                 axes = list(range(1, len(samples.shape)))
             samples = samples > samples.mean(axis=axes, keepdim=True)
         if return_numpy:
-            samples = samples.cpu().detach().numpy()
+            samples = samples.detach().cpu().numpy()
         return samples
 
     def get_shape_from_data_config(self):

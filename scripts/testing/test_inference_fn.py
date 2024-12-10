@@ -6,7 +6,7 @@ import poregen.trainers
 
 def main():
 
-    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20241202-bps-ldm-bentheimer256.yaml"
+    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20241206-bps-ldm-bentheimer256-oldparams.yaml"
 
     nsamples = 100
     poregen.trainers.pore_eval(

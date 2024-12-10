@@ -1,5 +1,6 @@
 from collections import defaultdict
 import os
+import pathlib
 
 import joblib
 import torch
@@ -265,3 +266,28 @@ def load_cluster_model(load_dir):
         'scaler': scaler,
         'cluster_stats': cluster_stats
     }
+
+
+def get_model_load_dir(model: str):
+    if model == 'CLUSTER-256-1':
+        return pathlib.Path(__file__).parent / 'cluster_data' / 'clusterer256.joblib'
+    else:
+        raise ValueError(f'Unknown model: {model}')
+
+
+def power_spectrum_criteria(samples: torch.Tensor, model='CLUSTER-256-1'):
+    # sample: torch.Tensor of shape (N, 4, H, W, D)
+
+    results = []
+    for sample in samples:
+        sample = sample.detach().cpu().numpy()[None, ...]
+        spectra = np.concatenate([
+            calculate_3d_radial_spectrum(sample[0, i, ...])[1]
+            for i in range(sample.shape[1])
+        ])
+        spectra = np.log(spectra)
+        load_dir = get_model_load_dir(model)
+        model = load_cluster_model(load_dir)
+        res = predict_cluster_spectra(model['model'], model['scaler'], spectra.T)
+        results.append(res)
+    return torch.tensor(results, dtype=torch.bool)

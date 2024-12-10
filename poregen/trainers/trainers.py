@@ -137,7 +137,8 @@ def pore_eval(cfg_path,  # noqa: C901
               guided: bool = False,
               tag: None | int | str = None,
               device_id: int = 0,
-              image_size: None | int = None):
+              image_size: None | int = None,
+              filter_spectra: bool = False):
     # FIXME: change shape for be also possibly an int
     loaded = poregen.trainers.pore_load(cfg_path,
                                         checkpoint_path,
@@ -183,6 +184,7 @@ def pore_eval(cfg_path,  # noqa: C901
                 maximum_batch_size=maximum_batch_size,
                 integrator=integrator,
                 y=y[i],
+                filter_spectra=filter_spectra
             )
             generated_samples[i] = generated_sample[0]
     else:
@@ -194,6 +196,7 @@ def pore_eval(cfg_path,  # noqa: C901
             maximum_batch_size=maximum_batch_size,
             integrator=integrator,
             y=y,
+            filter_spectra=filter_spectra
             )
 
     # If x_valid exists, I'll add it to the validation samples
