@@ -145,8 +145,8 @@ class PoreTrainer:
                 scheduler = transformers.get_cosine_with_hard_restarts_schedule_with_warmup(
                     optimizer=optimizer,
                     num_warmup_steps=scheduler_config.get('num_warmup_steps', 1000),
-                    num_training_steps=scheduler_config.get('num_training_steps', 100000),
-                    num_cycles=scheduler_config.get('num_cycles', 10)
+                    num_training_steps=scheduler_config.get('num_training_steps', 30000),
+                    num_cycles=scheduler_config.get('num_cycles', 1)
                 )
                 self.karras_module.scheduler = scheduler
             elif scheduler_type == 'step':
