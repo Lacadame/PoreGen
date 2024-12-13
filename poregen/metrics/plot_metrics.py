@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 from scipy import stats, interpolate
 
 
-def plot_unconditional_metrics(datapath, voxel_size_um=None):
+def plot_unconditional_metrics(datapath,
+                               voxel_size_um=None,
+                               min_porosity=-np.inf,
+                               max_porosity=np.inf):
     # voxel_size in um
     cfg_path = f"{datapath}/config.yaml"
 
@@ -41,6 +44,18 @@ def plot_unconditional_metrics(datapath, voxel_size_um=None):
     valid_permeabilities, _ = extract_property(valid_stats, 'permeability')
     generated_log_momenta, _ = extract_property(generated_stats, 'log_momenta')
     valid_log_momenta, _ = extract_property(valid_stats, 'log_momenta')
+
+    # # print(generated_porosities)
+    # # TODO: DELETE THAT
+    ind = (generated_porosities > min_porosity).flatten() & (generated_porosities < max_porosity).flatten()
+
+    print(ind.shape)
+    print(generated_porosities.shape)
+    print(generated_permeabilities.shape)
+    generated_porosities = generated_porosities[ind]
+    generated_permeabilities = generated_permeabilities[ind]
+    generated_surface_area_densities = generated_surface_area_densities[ind]
+    generated_log_momenta = generated_log_momenta[ind]
 
     # Unit conversion
     # Permeability is already in Darcy
@@ -83,6 +98,10 @@ def plot_unconditional_metrics(datapath, voxel_size_um=None):
     generated_tpc_prob, _ = extract_property(generated_stats, 'tpc_prob')
     valid_tpc_prob, _ = extract_property(valid_stats, 'tpc_prob')
 
+    # # TODO: DELETE THAT
+    generated_tpc_dist = generated_tpc_dist[ind]
+    generated_tpc_prob = generated_tpc_prob[ind]
+
     mean_generated_tpc_prob = np.mean(generated_tpc_prob, 0)
     std_generated_tpc_prob = np.std(generated_tpc_prob, 0)
     mean_valid_tpc_prob = np.mean(valid_tpc_prob, 0)
@@ -120,6 +139,11 @@ def plot_unconditional_metrics(datapath, voxel_size_um=None):
     valid_psd_pdf, _ = extract_property(valid_stats, 'psd_pdf')
     valid_psd_cdf, _ = extract_property(valid_stats, 'psd_cdf')
     valid_psd_centers, _ = extract_property(valid_stats, 'psd_centers')
+
+    # # TODO: DELETE THAT
+    generated_psd_pdf = generated_psd_pdf[ind]
+    generated_psd_cdf = generated_psd_cdf[ind]
+    generated_psd_centers = generated_psd_centers[ind]
 
     # The centers have units of um
     generated_psd_centers *= voxel_size_um
@@ -330,6 +354,42 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
     if fig5 is not None:
         fig5.savefig(savefolder / "two_point_correlation.png")
 
+def plot_cond_porosity(datapaths, conditions, nsamples=100):
+    validation = []
+    fig, ax = plt.subplots(1, 1, figsize=(16, 6))
+    for i, datapath in enumerate(datapaths):
+        # Load porosities
+        generated_stats_path = f"{datapath}/generated_stats.json"
+        valid_stats_path = f"{datapath}/valid_stats.json"
+        with open(generated_stats_path, "r") as f:
+            generated_stats = json.load(f)
+        with open(valid_stats_path, "r") as f:
+            valid_stats = json.load(f)
+        gen, _ = extract_property(generated_stats, 'porosity')
+        gen = gen.flatten()
+        valid, _ = extract_property(valid_stats, 'porosity')
+        valid = valid.flatten()
+        validation.append(valid)
+        # Plot the conditions
+        ax.axvline(x=conditions[i], color='black', linestyle='--')
+        # Plot the histograms
+        ax.hist(gen, bins=20, density=True, alpha=0.5, label=f'Condition: {conditions[i]}')
+    validation = np.concatenate(validation)
+    ax.hist(validation, bins=20, density=True, alpha=0.7, label='Validation', color='gray')
+    ax.set_xlabel('Porosity')
+    ax.set_ylabel('Density')
+    ax.set_title(f'Porosity Distribution - {nsamples} samples for each condition')
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+
+    # Save the figure in a parent folder
+    savefolder = pathlib.Path(datapaths[0]).parent.parent / "figures"
+    os.makedirs(savefolder, exist_ok=True)
+    fig.savefig(savefolder / "cond_porosity.png")
+    plt.close(fig)
+
+
 
 def plot_vae_reconstruction(datapath, nsamples=1, tag=None):
 
@@ -422,8 +482,8 @@ def extract_property(data, property_name):
             check = np.all(np.isfinite(value)) and len(value) > 0
             if not check:
                 print("Empty or faulty value for key", k)
-                continue
-            property_list.append(np.array(v[property_name]))
+                value = np.nan * np.ones_like(value)
+            property_list.append(value)
             input_list.append(k)
     property_list = np.stack(property_list, axis=0)
     input_list = np.array(input_list)

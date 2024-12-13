@@ -138,7 +138,8 @@ def pore_eval(cfg_path,  # noqa: C901
               tag: None | int | str = None,
               device_id: int = 0,
               image_size: None | int = None,
-              filter_spectra: bool = False):
+              filter_spectra: bool = False,
+              only_porosity: bool = False):
     # FIXME: change shape for be also possibly an int
     loaded = poregen.trainers.pore_load(cfg_path,
                                         checkpoint_path,
@@ -163,6 +164,10 @@ def pore_eval(cfg_path,  # noqa: C901
             else:
                 raise ValueError("Invalid y argument should be either 'train' or 'valid'")
             x_cond = torch.stack(x_cond)
+        elif isinstance(y, float):
+            y = torch.tensor([y])
+            # transform y into a dictionary
+            y = ({'porosity': y},)
         else:
             pass  # Everything is fine, y is a tensor
 
@@ -189,6 +194,7 @@ def pore_eval(cfg_path,  # noqa: C901
             generated_samples[i] = generated_sample[0]
     else:
         if y is not None:
+            print('Condition', y)
             y = y[0]
         print(y, 'CONDITION')
         generated_samples = loaded['trainer'].sample(
@@ -223,17 +229,20 @@ def pore_eval(cfg_path,  # noqa: C901
         x_cond = x_cond[0].cpu().numpy()
 
     if isinstance(extractors, str):
-        if extractors == '3d':
-            extractors = ['porosimetry_from_voxel',
-                          'two_point_correlation_from_voxel',
-                          'permeability_from_pnm',
-                          'porosity',
-                          'surface_area_density_from_voxel']
-        elif extractors == '2d':
-            extractors = ['porosimetry_from_slice',
-                          'two_point_correlation_from_slice',
-                          'porosity',
-                          'surface_area_density_from_slice']
+        if only_porosity:
+            extractors = ['porosity']
+        else:
+            if extractors == '3d':
+                extractors = ['porosimetry_from_voxel',
+                            'two_point_correlation_from_voxel',
+                            'permeability_from_pnm',
+                            'porosity',
+                            'surface_area_density_from_voxel']
+            elif extractors == '2d':
+                extractors = ['porosimetry_from_slice',
+                            'two_point_correlation_from_slice',
+                            'porosity',
+                            'surface_area_density_from_slice']
 
     # A hack to put the voxel size for permeability_from_pnm
     if 'permeability_from_pnm' in extractors:
