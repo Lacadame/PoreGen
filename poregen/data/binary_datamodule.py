@@ -37,6 +37,7 @@ class BinaryVoxelDataModule(L.LightningDataModule):
             'feature_extractor': feature_extractor,
             'center': self.cfg.get('center', False),
             'invert': self.cfg.get('invert', False),
+            'transform': self.cfg.get('transform', False),
         }
 
         self.train_dataset = dataset_class(voxels,
