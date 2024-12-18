@@ -1,0 +1,4 @@
+doing: /home/danilo/repos/PoreGen/configs/bps/20241202-bps-ldm-estaillades256.yaml
+done:
+- /home/danilo/repos/PoreGen/configs/bps/20241202-bps-ldm-bentheimer256.yaml
+on_queue: []

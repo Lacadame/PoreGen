@@ -1,0 +1,4 @@
+doing: null
+done:
+- /home/danilo/repos/PoreGen/configs/bps/20241206-bps-ldm-bentheimer256-finetune128.yaml
+on_queue: []
