@@ -11,12 +11,15 @@ from scipy import stats, interpolate
 def plot_unconditional_metrics(datapath,
                                voxel_size_um=None,
                                min_porosity=-np.inf,
-                               max_porosity=np.inf):
+                               max_porosity=np.inf,
+                               nbins = 20):
     # voxel_size in um
     cfg_path = f"{datapath}/config.yaml"
 
     # TODO: Simplify this loop. It should begin with if voxel_size_um is None
+    print(datapath)
     try:
+        print(cfg_path)
         with open(cfg_path, "r") as f:
             cfg = yaml.safe_load(f)
     except FileNotFoundError:
@@ -84,7 +87,7 @@ def plot_unconditional_metrics(datapath,
     labels = ['Porosity', 'Surface Area Density', 'Log10 Mean Pore Size', 'Log10-Permeability']
     units = [r"$\phi$", r"$1/\mu m$", r"$\log \,\mu m$", r"$\log \text{ Darcy}$"]
 
-    fig1 = plot_histograms(generated_data, valid_data, properties, labels, units)
+    fig1 = plot_histograms(generated_data, valid_data, properties, labels, units, nbins)
 
     fig2 = plot_boxplots(generated_data, valid_data, properties, labels, units)
 
@@ -502,13 +505,13 @@ def plot_boxplots(generated_data, valid_data, properties, labels, units):
     return fig
 
 
-def plot_histograms(generated_data, valid_data, properties, labels, units):
+def plot_histograms(generated_data, valid_data, properties, labels, units, nbins = 20):
     fig, ax = plt.subplots(1, 4, figsize=(20, 5))
 
     for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
         min_value = min(np.min(gen), np.min(val))
         max_value = max(np.max(gen), np.max(val))
-        bins = np.linspace(min_value, max_value, 20)
+        bins = np.linspace(min_value, max_value, nbins)
 
         ax[i].hist(gen.flatten(), bins=bins, density=True, color='red', alpha=0.5, label='Generated')
         ax[i].hist(val.flatten(), bins=bins, density=True, color='blue', alpha=0.5, label='Valid')
