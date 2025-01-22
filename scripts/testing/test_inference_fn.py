@@ -6,15 +6,26 @@ import poregen.trainers
 
 def main():
 
-    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20241206-bps-ldm-bentheimer256-oldparams.yaml"
+    cfgpath = "/home/ubuntu/repos/PoreGen/configs/bps/20250106-bps-ldm-estaillades256-aws.yaml"
 
     nsamples = 100
+    # poregen.trainers.pore_eval(
+    #     cfgpath,
+    #     'best',
+    #     nsamples=nsamples,
+    #     maximum_batch_size=1,
+    #     device_id=7,
+    #     integrator='karras',
+    #     tag='guided',
+    #     guided=True,
+    #     y='valid')
+
     poregen.trainers.pore_eval(
         cfgpath,
         'best',
         nsamples=nsamples,
         maximum_batch_size=1,
-        device_id=6,
+        device_id=7,
         integrator='karras',
         tag='256steps')
 

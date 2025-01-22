@@ -15,12 +15,15 @@ def plot_unconditional_metrics(datapath,
                                max_porosity=np.inf,
                                filter_dict=None,
                                plot_tag='',
-                               show_permeability=True):
+                               show_permeability=True,
+                               nbins=20):
     # voxel_size in um
     cfg_path = f"{datapath}/config.yaml"
 
     # TODO: Simplify this loop. It should begin with if voxel_size_um is None
+    print(datapath)
     try:
+        print(cfg_path)
         with open(cfg_path, "r") as f:
             cfg = yaml.safe_load(f)
     except FileNotFoundError:
@@ -97,7 +100,8 @@ def plot_unconditional_metrics(datapath,
         labels.append('Log10-Permeability')
         units.append(r"$\log \text{ Darcy}$")
 
-    fig1 = plot_histograms(generated_data, valid_data, properties, labels, units)
+    fig1 = plot_histograms(generated_data, valid_data, properties, labels, units, nbins)
+    fig1_kde, kl_divergences = plot_kde(generated_data, valid_data, properties, labels, units)
 
     fig2 = plot_boxplots(generated_data, valid_data, properties, labels, units)
 
@@ -170,10 +174,19 @@ def plot_unconditional_metrics(datapath,
 
     if plot_tag != '':
         plot_tag = f"_{plot_tag}"
+
+    print('here')
+    print(savefolder)
     fig1.savefig(savefolder / f"stats_histograms{plot_tag}.png")
+    fig1_kde.savefig(savefolder / f"stats_kde{plot_tag}.png")
     fig2.savefig(savefolder / f"stats_boxplots{plot_tag}.png")
     fig3.savefig(savefolder / f"tpc_comparison{plot_tag}.png")
     fig4.savefig(savefolder / f"psd_comparison{plot_tag}.png")
+
+    # Save KL divergences to JSON file
+    kl_divergences_path = savefolder / f"stats_kldiv_valid_gen{plot_tag}.json"
+    with open(kl_divergences_path, "w") as f:
+        json.dump(kl_divergences, f, indent=4)
 
 
 def plot_conditional_metrics(datapath, voxel_size_um=None, filter_dict=None, plot_tag=''):
@@ -531,27 +544,41 @@ def plot_boxplots(generated_data, valid_data, properties, labels, units):
     return fig
 
 
-def plot_histograms(generated_data, valid_data, properties, labels, units):
+def plot_histograms(generated_data, valid_data, properties, labels, units, nbins=20):
     fig, ax = plt.subplots(1, len(properties), figsize=(5*len(properties), 5))
 
     for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
         min_value = min(np.min(gen), np.min(val))
         max_value = max(np.max(gen), np.max(val))
-        bins = np.linspace(min_value, max_value, 20)
+        bins = np.linspace(min_value, max_value, nbins)
 
         # Plot histograms
-        # ax[i].hist(gen.flatten(), bins=bins, density=True, color='red', alpha=0.5, label='Generated')
-        # ax[i].hist(val.flatten(), bins=bins, density=True, color='blue', alpha=0.5, label='Valid')
+        ax[i].hist(gen.flatten(), bins=bins, density=True, color='red', alpha=0.5, label='Generated')
+        ax[i].hist(val.flatten(), bins=bins, density=True, color='blue', alpha=0.5, label='Valid')
 
-        # Add KDE curves
+        ax[i].set_xlabel(unit)
+        ax[i].set_ylabel("Density")
+        ax[i].set_title(label)
+        ax[i].legend()
 
-        # Expand min and max values to 10%
+    fig.tight_layout()
+    return fig
+
+
+def plot_kde(generated_data, valid_data, properties, labels, units):
+    fig, ax = plt.subplots(1, len(properties), figsize=(5*len(properties), 5))
+    kl_divergences = {}
+
+    for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
+        min_value = min(np.min(gen), np.min(val))
+        max_value = max(np.max(gen), np.max(val))
+
+        # Expand min and max values by 10%
         min_value = min_value - 0.2 * (max_value - min_value)
         max_value = max_value + 0.2 * (max_value - min_value)
 
         if label in ["Porosity", "Surface Area Density"]:
             min_value = max(min_value, 0.0)
-        # bins = np.linspace(min_value, max_value, 20)
 
         gen_kde = stats.gaussian_kde(gen.flatten())
         val_kde = stats.gaussian_kde(val.flatten())
@@ -564,8 +591,12 @@ def plot_histograms(generated_data, valid_data, properties, labels, units):
         ax[i].set_title(label)
         ax[i].legend()
 
+        # Calculate KL divergence between valid and generated distributions
+        kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(), n_samples=10000)
+        kl_divergences[prop] = kl_div
+
     fig.tight_layout()
-    return fig
+    return fig, kl_divergences
 
 
 def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_psd_centers,
@@ -631,3 +662,53 @@ def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_
 
     plt.tight_layout()
     return fig
+
+
+def kl_divergence_kde_mc(sample1, sample2, n_samples=10000, seed=None):
+    """
+    Calculate KL divergence D_KL(P||Q) between two samples using Gaussian KDE
+    and Monte Carlo integration with resampling.
+
+    Parameters:
+    -----------
+    sample1 : array-like
+        First sample (P distribution)
+    sample2 : array-like
+        Second sample (Q distribution)
+    n_samples : int, optional
+        Number of samples to use for Monte Carlo integration
+    seed : int, optional
+        Random seed for reproducibility
+
+    Returns:
+    --------
+    float
+        KL divergence D_KL(P||Q)
+    """
+    # Convert inputs to numpy arrays
+    sample1 = np.asarray(sample1)
+    sample2 = np.asarray(sample2)
+
+    # Estimate PDFs using Gaussian KDE
+    kde1 = stats.gaussian_kde(sample1)
+    kde2 = stats.gaussian_kde(sample2)
+
+    # Use resample method for Monte Carlo integration
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Sample from P distribution (kde1)
+    mc_samples = kde1.resample(n_samples, seed=seed)
+
+    # Evaluate both PDFs at the sampled points
+    p_values = kde1.evaluate(mc_samples)
+    q_values = kde2.evaluate(mc_samples)
+
+    # Add small constant to prevent log(0)
+    eps = 1e-10
+
+    # Calculate KL divergence using Monte Carlo integration
+    # KL = E_p[log(p/q)] ≈ (1/n) * Σ log(p/q)
+    kl_div = np.mean(np.log((p_values + eps) / (q_values + eps)))
+
+    return kl_div
