@@ -238,7 +238,6 @@ class PoreTrainer:
                 nsteps = 256
             else:
                 nsteps = 50
-        print('nsteps:', nsteps)
         if not filter_spectra:
             samples = self.karras_module.sample(
                 nsamples,

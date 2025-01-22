@@ -182,7 +182,10 @@ def pore_eval(cfg_path,  # noqa: C901
         tag=tag
     )
     if guided:
-        generated_samples = np.zeros(x_cond.shape)
+        # I will change the logic a bit to consider
+        # the possibility of spectra filtering
+        # generated_samples = np.zeros(x_cond.shape)
+        generated_samples = []
         for i in range(nsamples):
             generated_sample = loaded['trainer'].sample(
                 nsamples=1,
@@ -191,7 +194,10 @@ def pore_eval(cfg_path,  # noqa: C901
                 y=y[i],
                 filter_spectra=filter_spectra
             )
-            generated_samples[i] = generated_sample[0]
+            # generated_samples[i] = generated_sample[0]
+            if len(generated_sample) > 0:
+                generated_samples.append(np.squeeze(generated_sample, 0))
+        generated_samples = np.stack(generated_samples, axis=0)
     else:
         if y is not None:
             print('Condition', y)
@@ -261,7 +267,6 @@ def pore_eval(cfg_path,  # noqa: C901
         generated_stats = extractor(torch.tensor(generated_sample))
         convert_dict_items_to_numpy(generated_stats)
         generated_stats_all.append(generated_stats)
-
     for i, valid_sample in enumerate(valid_samples):
         valid_stats = extractor(torch.tensor(valid_sample))
         convert_dict_items_to_numpy(valid_stats)
