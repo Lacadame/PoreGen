@@ -507,9 +507,13 @@ def extract_property(data, property_name):
             check = np.all(np.isfinite(value)) and len(value) > 0
             if not check:
                 print("Empty or faulty value for key", k)
-                value = np.nan * np.ones_like(value)
+                continue
+                # if len(value) == 0:
+                    # continue
+                # value = np.nan * np.ones_like(value)
             property_list.append(value)
             input_list.append(k)
+    print(property_name, property_list)
     property_list = np.stack(property_list, axis=0)
     input_list = np.array(input_list)
     return property_list, input_list
