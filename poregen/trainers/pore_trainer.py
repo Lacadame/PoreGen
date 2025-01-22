@@ -95,6 +95,7 @@ class PoreTrainer:
             # Remove last.ckpt
             # checkpoints = [ckpt for ckpt in checkpoints if not ckpt.endswith('last.ckpt')]
             checkpoints = [ckpt for ckpt in checkpoints if "last" not in ckpt]
+            print(checkpoint_dir)
             if not checkpoints:
                 warnings.warn("No checkpoints found in the specified directory. Starting from scratch.")
                 return None
@@ -247,7 +248,8 @@ class PoreTrainer:
                 nsteps,
                 record_history,
                 maximum_batch_size,
-                integrator
+                integrator,
+                move_to_cpu=True
             )
         else:
             samples = self.karras_module.sample_and_filter(

@@ -6,13 +6,17 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats, interpolate
+import seaborn as sns
 
 
 def plot_unconditional_metrics(datapath,
                                voxel_size_um=None,
                                min_porosity=-np.inf,
                                max_porosity=np.inf,
-                               nbins = 20):
+                               filter_dict=None,
+                               plot_tag='',
+                               show_permeability=True,
+                               nbins=20):
     # voxel_size in um
     cfg_path = f"{datapath}/config.yaml"
 
@@ -35,7 +39,10 @@ def plot_unconditional_metrics(datapath,
 
     with open(generated_stats_path, "r") as f:
         generated_stats = json.load(f)
-
+        if filter_dict is not None:
+            print(generated_stats.keys())
+            print(filter_dict.keys())
+            generated_stats = {k: v for k, v in generated_stats.items() if filter_dict.get(k, False)}
     with open(valid_stats_path, "r") as f:
         valid_stats = json.load(f)
 
@@ -43,8 +50,6 @@ def plot_unconditional_metrics(datapath,
     valid_porosities, _ = extract_property(valid_stats, 'porosity')
     generated_surface_area_densities, _ = extract_property(generated_stats, 'surface_area_density')
     valid_surface_area_densities, _ = extract_property(valid_stats, 'surface_area_density')
-    generated_permeabilities, _ = extract_property(generated_stats, 'permeability')
-    valid_permeabilities, _ = extract_property(valid_stats, 'permeability')
     generated_log_momenta, _ = extract_property(generated_stats, 'log_momenta')
     valid_log_momenta, _ = extract_property(valid_stats, 'log_momenta')
 
@@ -54,9 +59,16 @@ def plot_unconditional_metrics(datapath,
 
     print(ind.shape)
     print(generated_porosities.shape)
-    print(generated_permeabilities.shape)
+    if show_permeability:
+        generated_permeabilities, _ = extract_property(generated_stats, 'permeability')
+        valid_permeabilities, _ = extract_property(valid_stats, 'permeability')
+        generated_permeabilities = generated_permeabilities[ind]
+        generated_log_permeabilities = np.log10(np.prod(generated_permeabilities, axis=1)**(1/3))
+        valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
+        generated_log_permeabilities = generated_log_permeabilities[np.isfinite(generated_log_permeabilities)]
+        valid_log_permeabilities = valid_log_permeabilities[np.isfinite(valid_log_permeabilities)]
+
     generated_porosities = generated_porosities[ind]
-    generated_permeabilities = generated_permeabilities[ind]
     generated_surface_area_densities = generated_surface_area_densities[ind]
     generated_log_momenta = generated_log_momenta[ind]
 
@@ -69,25 +81,27 @@ def plot_unconditional_metrics(datapath,
     generated_log_momenta = generated_log_momenta + log_momenta_conversion
     valid_log_momenta = valid_log_momenta + log_momenta_conversion
 
-    generated_log_permeabilities = np.log10(np.prod(generated_permeabilities, axis=1)**(1/3))
-    valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
-    generated_log_permeabilities = generated_log_permeabilities[np.isfinite(generated_log_permeabilities)]
-    valid_log_permeabilities = valid_log_permeabilities[np.isfinite(valid_log_permeabilities)]
-
     generated_log_mean_pore_size = np.log10(np.exp(generated_log_momenta[:, 0]))
     valid_log_mean_pore_size = np.log10(np.exp(valid_log_momenta[:, 0]))
 
     # Example usage for both functions
     generated_data = [generated_porosities,
                       generated_surface_area_densities,
-                      generated_log_mean_pore_size,
-                      generated_log_permeabilities]
-    valid_data = [valid_porosities, valid_surface_area_densities, valid_log_mean_pore_size, valid_log_permeabilities]
-    properties = ['porosity', 'surface_area_density', 'log_mean_pore_size', 'log_permeability']
-    labels = ['Porosity', 'Surface Area Density', 'Log10 Mean Pore Size', 'Log10-Permeability']
-    units = [r"$\phi$", r"$1/\mu m$", r"$\log \,\mu m$", r"$\log \text{ Darcy}$"]
+                      generated_log_mean_pore_size]
+    valid_data = [valid_porosities, valid_surface_area_densities, valid_log_mean_pore_size]
+    properties = ['porosity', 'surface_area_density', 'log_mean_pore_size']
+    labels = ['Porosity', 'Surface Area Density', 'Log10 Mean Pore Size']
+    units = [r"$\phi$", r"$1/\mu m$", r"$\log \,\mu m$"]
+
+    if show_permeability:
+        generated_data.append(generated_log_permeabilities)
+        valid_data.append(valid_log_permeabilities)
+        properties.append('log_permeability')
+        labels.append('Log10-Permeability')
+        units.append(r"$\log \text{ Darcy}$")
 
     fig1 = plot_histograms(generated_data, valid_data, properties, labels, units, nbins)
+    fig1_kde, kl_divergences = plot_kde(generated_data, valid_data, properties, labels, units)
 
     fig2 = plot_boxplots(generated_data, valid_data, properties, labels, units)
 
@@ -157,13 +171,25 @@ def plot_unconditional_metrics(datapath,
 
     savefolder = pathlib.Path(f"{datapath}/figures")
     os.makedirs(savefolder, exist_ok=True)
-    fig1.savefig(savefolder / "stats_histograms.png")
-    fig2.savefig(savefolder / "stats_boxplots.png")
-    fig3.savefig(savefolder / "tpc_comparison.png")
-    fig4.savefig(savefolder / "psd_comparison.png")
+
+    if plot_tag != '':
+        plot_tag = f"_{plot_tag}"
+
+    print('here')
+    print(savefolder)
+    fig1.savefig(savefolder / f"stats_histograms{plot_tag}.png")
+    fig1_kde.savefig(savefolder / f"stats_kde{plot_tag}.png")
+    fig2.savefig(savefolder / f"stats_boxplots{plot_tag}.png")
+    fig3.savefig(savefolder / f"tpc_comparison{plot_tag}.png")
+    fig4.savefig(savefolder / f"psd_comparison{plot_tag}.png")
+
+    # Save KL divergences to JSON file
+    kl_divergences_path = savefolder / f"stats_kldiv_valid_gen{plot_tag}.json"
+    with open(kl_divergences_path, "w") as f:
+        json.dump(kl_divergences, f, indent=4)
 
 
-def plot_conditional_metrics(datapath, voxel_size_um=None):
+def plot_conditional_metrics(datapath, voxel_size_um=None, filter_dict=None, plot_tag=''):
     # TODO: Break this function into smaller functions!
 
     # voxel_size in um
@@ -187,6 +213,8 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
 
     with open(generated_stats_path, "r") as f:
         generated_stats = json.load(f)
+        if filter_dict is not None:
+            generated_stats = {k: v for k, v in generated_stats.items() if filter_dict.get(k, False)}
 
     with open(x_cond_stats_path, "r") as f:
         x_cond_stats = json.load(f)
@@ -346,18 +374,20 @@ def plot_conditional_metrics(datapath, voxel_size_um=None):
 
     savefolder = pathlib.Path(f"{datapath}/figures")
     os.makedirs(savefolder, exist_ok=True)
+    if plot_tag != '':
+        plot_tag = f"_{plot_tag}"
     if fig1 is not None:
-        fig1.savefig(savefolder / "porosity.png")
+        fig1.savefig(savefolder / f"porosity{plot_tag}.png")
     if fig2 is not None:
-        fig2.savefig(savefolder / "pore_size_distribution_pdf.png")
+        fig2.savefig(savefolder / f"pore_size_distribution_pdf{plot_tag}.png")
     if fig3 is not None:
-        fig3.savefig(savefolder / "pore_size_distribution_cdf.png")
+        fig3.savefig(savefolder / f"pore_size_distribution_cdf{plot_tag}.png")
     if fig4 is not None:
-        fig4.savefig(savefolder / "psd_momenta.png")
+        fig4.savefig(savefolder / f"psd_momenta{plot_tag}.png")
     if fig5 is not None:
-        fig5.savefig(savefolder / "two_point_correlation.png")
+        fig5.savefig(savefolder / f"two_point_correlation{plot_tag}.png")
 
-def plot_cond_porosity(datapaths, conditions, nsamples=100):
+def plot_cond_porosity(datapaths, conditions, nsamples=100, bins=10, filter_dict=None, plot_tag=''):
     validation = []
     fig, ax = plt.subplots(1, 1, figsize=(16, 6))
     for i, datapath in enumerate(datapaths):
@@ -366,6 +396,8 @@ def plot_cond_porosity(datapaths, conditions, nsamples=100):
         valid_stats_path = f"{datapath}/valid_stats.json"
         with open(generated_stats_path, "r") as f:
             generated_stats = json.load(f)
+            if filter_dict is not None:
+                generated_stats = {k: v for k, v in generated_stats.items() if filter_dict.get(k, False)}
         with open(valid_stats_path, "r") as f:
             valid_stats = json.load(f)
         gen, _ = extract_property(generated_stats, 'porosity')
@@ -374,11 +406,12 @@ def plot_cond_porosity(datapaths, conditions, nsamples=100):
         valid = valid.flatten()
         validation.append(valid)
         # Plot the conditions
-        ax.axvline(x=conditions[i], color='black', linestyle='--')
+        ax.vlines(x=conditions[i], color='black', ymin=0, ymax=30, linewidth=3)
         # Plot the histograms
-        ax.hist(gen, bins=20, density=True, alpha=0.5, label=f'Condition: {conditions[i]}')
+        ax.hist(gen, bins=bins, density=True, alpha=0.5, label=f'Porosity: {conditions[i]}')
     validation = np.concatenate(validation)
-    ax.hist(validation, bins=20, density=True, alpha=0.7, label='Validation', color='gray')
+    ax.hist(validation, bins=bins, density=True, label='Validation', histtype='step',
+            color='grey', linewidth=2)
     ax.set_xlabel('Porosity')
     ax.set_ylabel('Density')
     ax.set_title(f'Porosity Distribution - {nsamples} samples for each condition')
@@ -389,7 +422,9 @@ def plot_cond_porosity(datapaths, conditions, nsamples=100):
     # Save the figure in a parent folder
     savefolder = pathlib.Path(datapaths[0]).parent.parent / "figures"
     os.makedirs(savefolder, exist_ok=True)
-    fig.savefig(savefolder / "cond_porosity.png")
+    if plot_tag != '':
+        plot_tag = f"_{plot_tag}"
+    fig.savefig(savefolder / f"cond_porosity{plot_tag}.png")
     plt.close(fig)
 
 
@@ -494,7 +529,7 @@ def extract_property(data, property_name):
 
 
 def plot_boxplots(generated_data, valid_data, properties, labels, units):
-    fig, ax = plt.subplots(1, 4, figsize=(16, 4))
+    fig, ax = plt.subplots(1, len(properties), figsize=(4*len(properties), 4))
 
     for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
         ax[i].boxplot([gen.flatten(), val.flatten()], labels=['Generated', 'Valid'])
@@ -505,14 +540,15 @@ def plot_boxplots(generated_data, valid_data, properties, labels, units):
     return fig
 
 
-def plot_histograms(generated_data, valid_data, properties, labels, units, nbins = 20):
-    fig, ax = plt.subplots(1, 4, figsize=(20, 5))
+def plot_histograms(generated_data, valid_data, properties, labels, units, nbins=20):
+    fig, ax = plt.subplots(1, len(properties), figsize=(5*len(properties), 5))
 
     for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
         min_value = min(np.min(gen), np.min(val))
         max_value = max(np.max(gen), np.max(val))
         bins = np.linspace(min_value, max_value, nbins)
 
+        # Plot histograms
         ax[i].hist(gen.flatten(), bins=bins, density=True, color='red', alpha=0.5, label='Generated')
         ax[i].hist(val.flatten(), bins=bins, density=True, color='blue', alpha=0.5, label='Valid')
 
@@ -523,6 +559,40 @@ def plot_histograms(generated_data, valid_data, properties, labels, units, nbins
 
     fig.tight_layout()
     return fig
+
+
+def plot_kde(generated_data, valid_data, properties, labels, units):
+    fig, ax = plt.subplots(1, len(properties), figsize=(5*len(properties), 5))
+    kl_divergences = {}
+
+    for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
+        min_value = min(np.min(gen), np.min(val))
+        max_value = max(np.max(gen), np.max(val))
+
+        # Expand min and max values by 10%
+        min_value = min_value - 0.2 * (max_value - min_value)
+        max_value = max_value + 0.2 * (max_value - min_value)
+
+        if label in ["Porosity", "Surface Area Density"]:
+            min_value = max(min_value, 0.0)
+
+        gen_kde = stats.gaussian_kde(gen.flatten())
+        val_kde = stats.gaussian_kde(val.flatten())
+        x_kde = np.linspace(min_value, max_value, 200)
+        ax[i].fill_between(x_kde, 0, gen_kde(x_kde), color='red', alpha=0.4, label='Generated')
+        ax[i].fill_between(x_kde, 0, val_kde(x_kde), color='blue', alpha=0.4, label='Valid')
+
+        ax[i].set_xlabel(unit)
+        ax[i].set_ylabel("Density")
+        ax[i].set_title(label)
+        ax[i].legend()
+
+        # Calculate KL divergence between valid and generated distributions
+        kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(), n_samples=10000)
+        kl_divergences[prop] = kl_div
+
+    fig.tight_layout()
+    return fig, kl_divergences
 
 
 def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_psd_centers,
@@ -588,3 +658,53 @@ def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_
 
     plt.tight_layout()
     return fig
+
+
+def kl_divergence_kde_mc(sample1, sample2, n_samples=10000, seed=None):
+    """
+    Calculate KL divergence D_KL(P||Q) between two samples using Gaussian KDE
+    and Monte Carlo integration with resampling.
+
+    Parameters:
+    -----------
+    sample1 : array-like
+        First sample (P distribution)
+    sample2 : array-like
+        Second sample (Q distribution)
+    n_samples : int, optional
+        Number of samples to use for Monte Carlo integration
+    seed : int, optional
+        Random seed for reproducibility
+
+    Returns:
+    --------
+    float
+        KL divergence D_KL(P||Q)
+    """
+    # Convert inputs to numpy arrays
+    sample1 = np.asarray(sample1)
+    sample2 = np.asarray(sample2)
+
+    # Estimate PDFs using Gaussian KDE
+    kde1 = stats.gaussian_kde(sample1)
+    kde2 = stats.gaussian_kde(sample2)
+
+    # Use resample method for Monte Carlo integration
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Sample from P distribution (kde1)
+    mc_samples = kde1.resample(n_samples, seed=seed)
+
+    # Evaluate both PDFs at the sampled points
+    p_values = kde1.evaluate(mc_samples)
+    q_values = kde2.evaluate(mc_samples)
+
+    # Add small constant to prevent log(0)
+    eps = 1e-10
+
+    # Calculate KL divergence using Monte Carlo integration
+    # KL = E_p[log(p/q)] ≈ (1/n) * Σ log(p/q)
+    kl_div = np.mean(np.log((p_values + eps) / (q_values + eps)))
+
+    return kl_div
