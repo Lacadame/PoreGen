@@ -333,7 +333,7 @@ def pore_eval(cfg_path,  # noqa: C901
                                         load_data=True,
                                         image_size=image_size)
     if nsamples_valid is None:
-        nsamples_valid = nesamples
+        nsamples_valid = nsamples
     voxel_size_um = loaded['datamodule'].voxel_size_um
     x_cond = None
     if y is not None:

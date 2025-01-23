@@ -408,13 +408,14 @@ def plot_cond_porosity(datapaths, conditions, nsamples=100, bins=10, filter_dict
         # Plot the conditions
         ax.vlines(x=conditions[i], color='black', ymin=0, ymax=30, linewidth=3)
         # Plot the histograms
-        ax.hist(gen, bins=bins, density=True, alpha=0.5, label=f'Porosity: {conditions[i]}')
+        ax.hist(gen, bins=bins, density=False, alpha=0.5, label=f'Condition = {conditions[i]}')
     validation = np.concatenate(validation)
-    ax.hist(validation, bins=bins, density=True, label='Validation', histtype='step',
+    nconds = len(conditions)
+    ax.hist(validation, bins=nconds*bins, density=False, label='Validation', histtype='step',
             color='grey', linewidth=2)
-    ax.set_xlabel('Porosity')
-    ax.set_ylabel('Density')
-    ax.set_title(f'Porosity Distribution - {nsamples} samples for each condition')
+    ax.set_xlabel('Porosity values')
+    # ax.set_ylabel('Density')
+    ax.set_title(f'Porosity histograms - {nsamples} samples for each condition')
     ax.legend()
     fig.tight_layout()
     plt.show()
