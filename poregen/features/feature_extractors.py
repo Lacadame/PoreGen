@@ -24,9 +24,27 @@ AVAILABLE_EXTRACTORS = [
     'permeability_from_pnm',
     'surface_area_density_from_slice',
     'surface_area_density_from_voxel',
-    'surface_area_densityfrom_voxel_slice'
+    'surface_area_densityfrom_voxel_slice',
+    'effective_porosity'
 ]
 
+EXTRACTORS_RETURN_KEYS_MAP = {
+    'porosity': ['porosity'],
+    'effective_porosity': ['effective_porosity'],
+    'surface_area_density_from_slice': ['surface_area_density'],
+    'surface_area_density_from_voxel': ['surface_area_density'],
+    'surface_area_density_from_voxel_slice': ['surface_area_density'],
+    'two_point_correlation_from_slice': ['tpc_dist', 'tpc_prob'],
+    'two_point_correlation_from_voxel': ['tpc_dist', 'tpc_prob'],
+    'two_point_correlation_from_voxel_slice': ['tpc_dist', 'tpc_prob'],
+    'porosimetry_from_slice': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
+                               'root_momenta', 'standardized_momenta'],
+    'porosimetry_from_voxel': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
+                               'root_momenta', 'standardized_momenta'],
+    'porosimetry_from_voxel_slice': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
+                                     'root_momenta', 'standardized_momenta'],
+    'permeability_from_pnm': ['permeability']
+}
 
 # Extractors
 
@@ -129,6 +147,12 @@ def extract_surface_area_density_from_voxel_slice(voxel, voxel_size: float = 1.0
 def extract_porosity(slice):
     porosity = torch.tensor([(1 - slice.numpy().mean())], dtype=torch.float)
     return {'porosity': porosity}
+
+
+def extract_effective_porosity(slice):
+    volume = 1 - slice[0].numpy()
+    effective_porosity = porespy.filters.fill_blind_pores(volume).mean()
+    return {'effective_porosity': torch.tensor([effective_porosity], dtype=torch.float)}
 
 
 def extract_permeability_from_pnm(voxel,
