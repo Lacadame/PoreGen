@@ -6,6 +6,7 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats, interpolate
+import scipy.integrate
 import seaborn as sns
 
 
@@ -101,7 +102,7 @@ def plot_unconditional_metrics(datapath,
         units.append(r"$\log \text{ Darcy}$")
 
     fig1 = plot_histograms(generated_data, valid_data, properties, labels, units, nbins)
-    fig1_kde, kl_divergences = plot_kde(generated_data, valid_data, properties, labels, units)
+    fig1_kde, divergences = plot_kde(generated_data, valid_data, properties, labels, units)
 
     fig2 = plot_boxplots(generated_data, valid_data, properties, labels, units)
 
@@ -184,9 +185,9 @@ def plot_unconditional_metrics(datapath,
     fig4.savefig(savefolder / f"psd_comparison{plot_tag}.png")
 
     # Save KL divergences to JSON file
-    kl_divergences_path = savefolder / f"stats_kldiv_valid_gen{plot_tag}.json"
-    with open(kl_divergences_path, "w") as f:
-        json.dump(kl_divergences, f, indent=4)
+    divergences_path = savefolder / f"stats_divergences{plot_tag}.json"
+    with open(divergences_path, "w") as f:
+        json.dump(divergences, f, indent=4)
 
 
 def plot_conditional_metrics(datapath, voxel_size_um=None, filter_dict=None, plot_tag=''):
@@ -344,33 +345,39 @@ def plot_conditional_metrics(datapath, voxel_size_um=None, filter_dict=None, plo
 
     if two_point_correlation_condition:
         generated_tpc_dist, _ = extract_property(generated_stats, 'tpc_dist')
+        valid_tpc_dist, _ = extract_property(valid_stats, 'tpc_dist')
         x_cond_tpc_dist = x_cond_stats['tpc_dist']
         x_cond_tpc_dist = np.array(x_cond_tpc_dist)
 
         # tpc_dists have units of um
         generated_tpc_dist *= voxel_size_um
+        valid_tpc_dist *= voxel_size_um
         x_cond_tpc_dist *= voxel_size_um
 
         generated_tpc_prob, _ = extract_property(generated_stats, 'tpc_prob')
+        valid_tpc_prob, _ = extract_property(valid_stats, 'tpc_prob')
         x_cond_tpc_prob = x_cond_stats['tpc_prob']
 
         # x_generated = generated_tpc_dist.mean(axis=0)
         # x_x_cond = x_cond_tpc_dist.mean(axis=0)
 
-        fig5, ax = plt.subplots(1, 1, figsize=(6, 6))
+        fig5, axs = plt.subplots(1, 2, figsize=(12, 5))
         nplots = generated_tpc_dist.shape[0] - 1
         for i in range(nplots):
-            ax.plot(generated_tpc_dist[i], generated_tpc_prob[i], alpha=0.2, color='red')
-        ax.plot(generated_tpc_dist[nplots], generated_tpc_prob[nplots], alpha=0.2, color='red', label='Generated')
+            axs[0].plot(generated_tpc_dist[i], generated_tpc_prob[i], alpha=0.2, color='red')
+            axs[1].plot(valid_tpc_dist[i], valid_tpc_prob[i], alpha=0.2, color='red')
+        axs[0].plot(generated_tpc_dist[nplots], generated_tpc_prob[nplots], alpha=0.2, color='red', label='Generated')
+        axs[1].plot(valid_tpc_dist[nplots], valid_tpc_prob[nplots], alpha=0.2, color='red', label='Validation')
         print(len(x_cond_tpc_dist), len(x_cond_tpc_prob))
         print(x_cond_tpc_prob)
         print(x_cond_tpc_dist)
-        ax.plot(x_cond_tpc_dist, x_cond_tpc_prob, color='black', label='Condition')
+        for ax in axs:
+            ax.plot(x_cond_tpc_dist, x_cond_tpc_prob, color='black', label='Condition')
 
-        ax.set_xlabel(r"$r$ $(\mu m)$")
-        ax.set_ylabel(r"$(s_2 - \phi^2)/(\phi - \phi^2)$")
-        ax.legend()
-        ax.set_title("Comparison of two point correlation (TPC)")
+            ax.set_xlabel(r"$r$ $(\mu m)$")
+            ax.set_ylabel(r"$(s_2 - \phi^2)/(\phi - \phi^2)$")
+            ax.legend()
+            ax.set_title("Comparison of two point correlation (TPC)")
 
     savefolder = pathlib.Path(f"{datapath}/figures")
     os.makedirs(savefolder, exist_ok=True)
@@ -386,6 +393,7 @@ def plot_conditional_metrics(datapath, voxel_size_um=None, filter_dict=None, plo
         fig4.savefig(savefolder / f"psd_momenta{plot_tag}.png")
     if fig5 is not None:
         fig5.savefig(savefolder / f"two_point_correlation{plot_tag}.png")
+
 
 def plot_cond_porosity(datapaths, conditions, nsamples=100, bins=10, filter_dict=None, plot_tag=''):
     validation = []
@@ -427,7 +435,6 @@ def plot_cond_porosity(datapaths, conditions, nsamples=100, bins=10, filter_dict
         plot_tag = f"_{plot_tag}"
     fig.savefig(savefolder / f"cond_porosity{plot_tag}.png")
     plt.close(fig)
-
 
 
 def plot_vae_reconstruction(datapath, nsamples=1, tag=None):
@@ -564,7 +571,7 @@ def plot_histograms(generated_data, valid_data, properties, labels, units, nbins
 
 def plot_kde(generated_data, valid_data, properties, labels, units):
     fig, ax = plt.subplots(1, len(properties), figsize=(5*len(properties), 5))
-    kl_divergences = {}
+    divergences = {}
 
     for i, (gen, val, prop, label, unit) in enumerate(zip(generated_data, valid_data, properties, labels, units)):
         min_value = min(np.min(gen), np.min(val))
@@ -588,12 +595,17 @@ def plot_kde(generated_data, valid_data, properties, labels, units):
         ax[i].set_title(label)
         ax[i].legend()
 
-        # Calculate KL divergence between valid and generated distributions
+        # Calculate KL divergence and Hellinger distance between valid and generated distributions
         kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(), n_samples=10000)
-        kl_divergences[prop] = kl_div
+        hellinger_dist = hellinger_distance_kde_mc(val.flatten(), gen.flatten(), n_samples=10000)
+        
+        divergences[prop] = {
+            'kl_divergence': kl_div,
+            'hellinger_distance': hellinger_dist
+        }
 
     fig.tight_layout()
-    return fig, kl_divergences
+    return fig, divergences
 
 
 def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_psd_centers,
@@ -709,3 +721,52 @@ def kl_divergence_kde_mc(sample1, sample2, n_samples=10000, seed=None):
     kl_div = np.mean(np.log((p_values + eps) / (q_values + eps)))
 
     return kl_div
+
+
+def hellinger_distance_kde_mc(sample1, sample2, n_samples=10000, seed=None):
+    """
+    Calculate Hellinger distance H(P,Q) between two samples using Gaussian KDE
+    and numerical integration. The Hellinger distance is defined as:
+    H(P,Q) = sqrt(1/2 ∫(sqrt(p) - sqrt(q))^2 dx)
+
+    Parameters:
+    -----------
+    sample1 : array-like
+        First sample (P distribution)
+    sample2 : array-like
+        Second sample (Q distribution) 
+    nsamples : int
+        Dummy parameter to match the signature of kl_divergence_kde_mc
+    seed : int, optional
+        Dummy parameter to match the signature of kl_divergence_kde_mc
+
+    Returns:
+    --------
+    float
+        Hellinger distance H(P,Q)
+    """
+    # Convert inputs to numpy arrays
+    sample1 = np.asarray(sample1)
+    sample2 = np.asarray(sample2)
+
+    # Estimate PDFs using Gaussian KDE
+    kde1 = stats.gaussian_kde(sample1)
+    kde2 = stats.gaussian_kde(sample2)
+
+    # Define integration bounds as min/max of samples with some padding
+    min_x = min(sample1.min(), sample2.min())
+    max_x = max(sample1.max(), sample2.max())
+    padding = 0.2 * (max_x - min_x)  # 20% padding on each side
+    
+    def integrand(x):
+        # Add small constant to prevent numerical issues with sqrt
+        eps = 1e-10
+        p = kde1.evaluate(x) + eps
+        q = kde2.evaluate(x) + eps
+        return 0.5 * (np.sqrt(p) - np.sqrt(q))**2
+
+    # Use scipy.integrate.quad for numerical integration
+    integral, _ = scipy.integrate.quad(integrand, min_x - padding, max_x + padding)
+    hellinger = np.sqrt(integral)
+
+    return hellinger
