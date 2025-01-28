@@ -6,32 +6,36 @@ import poregen.trainers
 
 def main():
 
-    cfgpath =  "/home/ubuntu/repos/PoreGen/configs/bps/20250106-bps-ldm-estaillades256-aws.yaml"
+    cfgpath1 = "/home/ubuntu/repos/PoreGen/configs/bps/20250108-bps-ldm-estaillades256-p_cond-aws.yaml"
+    cfgpath2 = "/home/ubuntu/repos/PoreGen/configs/bps/20250108-bps-ldm-ketton256-p_cond-aws.yaml"
 
-    poregen.trainers.pore_eval(
-        cfgpath,
-        'best',
-        nsamples=500,
-        nsamples_valid=1,
-        maximum_batch_size=1,
-        device_id=6,
-        integrator='heun',
-        tag='100',
-        filter_spectra=True
-    )
+    for cfgpath in [cfgpath1, cfgpath2]:
+        poregen.trainers.pore_eval(
+            cfgpath,
+            'best',
+            nsamples=500,
+            nsamples_valid=2,
+            maximum_batch_size=1,
+            device_id=6,
+            integrator='heun',
+            filter_spectra=True,
+            guided=True,
+            y='valid'
+        )
 
-    nsamples = 100
-    poregen.trainers.pore_eval(
-        cfgpath,
-        'best',
-        nsamples=100,
-        nsamples_valid=1,
-        maximum_batch_size=1,
-        device_id=6,
-        integrator='heun',
-        tag='100',
-        filter_spectra=False
-    )
+    #     poregen.trainers.pore_eval(
+    #         cfgpath,
+    #         'best',
+    #         nsamples=2,
+    #         nsamples_valid=2,
+    #         maximum_batch_size=1,
+    #         device_id=6,
+    #         integrator='heun',
+    #         tag='TEST',
+    #         filter_spectra=False,
+    #         guided=True,
+    #         y='valid'
+    #     )
 
 if __name__ == "__main__":
     main()

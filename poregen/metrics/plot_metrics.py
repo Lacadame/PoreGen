@@ -17,7 +17,9 @@ def plot_unconditional_metrics(datapath,
                                filter_dict=None,
                                plot_tag='',
                                show_permeability=True,
-                               nbins=20):
+                               nbins=20,
+                               use_log_properties=True,
+                               convert_nan_to_zero=False):
     # voxel_size in um
     cfg_path = f"{datapath}/config.yaml"
 
@@ -66,9 +68,16 @@ def plot_unconditional_metrics(datapath,
         generated_permeabilities = generated_permeabilities[ind]
         generated_log_permeabilities = np.log10(np.prod(generated_permeabilities, axis=1)**(1/3))
         valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
-        generated_log_permeabilities = generated_log_permeabilities[np.isfinite(generated_log_permeabilities)]
-        valid_log_permeabilities = valid_log_permeabilities[np.isfinite(valid_log_permeabilities)]
+        generated_log_permeabilities[~np.isfinite(generated_log_permeabilities)] = 0
+        valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = 0
 
+        if convert_nan_to_zero:
+            generated_log_permeabilities[~np.isfinite(generated_log_permeabilities)] = 0
+            valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = 0
+        else:
+            generated_log_permeabilities = generated_log_permeabilities[np.isfinite(generated_log_permeabilities)]
+            valid_log_permeabilities = valid_log_permeabilities[np.isfinite(valid_log_permeabilities)]
+            print("HERE")
     generated_porosities = generated_porosities[ind]
     generated_surface_area_densities = generated_surface_area_densities[ind]
     generated_log_momenta = generated_log_momenta[ind]
@@ -85,68 +94,47 @@ def plot_unconditional_metrics(datapath,
     generated_log_mean_pore_size = np.log10(np.exp(generated_log_momenta[:, 0]))
     valid_log_mean_pore_size = np.log10(np.exp(valid_log_momenta[:, 0]))
 
+    if not use_log_properties:
+        # Remove the logarithms, but keep the name "log" for backward compatibility
+        generated_log_mean_pore_size = 10**generated_log_mean_pore_size
+        valid_log_mean_pore_size = 10**valid_log_mean_pore_size
+        generated_log_permeabilities = 10**generated_log_permeabilities
+        valid_log_permeabilities = 10**valid_log_permeabilities
+        print("NOT USING LOG PROPERTIES")
     # Example usage for both functions
     generated_data = [generated_porosities,
                       generated_surface_area_densities,
                       generated_log_mean_pore_size]
     valid_data = [valid_porosities, valid_surface_area_densities, valid_log_mean_pore_size]
-    properties = ['porosity', 'surface_area_density', 'log_mean_pore_size']
-    labels = ['Porosity', 'Surface Area Density', 'Log10 Mean Pore Size']
-    units = [r"$\phi$", r"$1/\mu m$", r"$\log \,\mu m$"]
+    if use_log_properties:
+        properties = ['porosity', 'surface_area_density', 'log_mean_pore_size']
+        labels = ['Porosity', 'Surface Area Density', 'Log10 Mean Pore Size']
+        units = [r"$\phi$", r"$1/\mu m$", r"$\log \,\mu m$"]
+    else:
+        properties = ['porosity', 'surface_area_density', 'mean_pore_size']
+        labels = ['Porosity', 'Surface Area Density', 'Mean Pore Size']
+        units = [r"$\phi$", r"$1/\mu m$", r"$\mu m$"]
 
     if show_permeability:
         generated_data.append(generated_log_permeabilities)
         valid_data.append(valid_log_permeabilities)
-        properties.append('log_permeability')
-        labels.append('Log10-Permeability')
-        units.append(r"$\log \text{ Darcy}$")
+        if use_log_properties:
+            properties.append('log_permeability')
+            labels.append('Log10-Permeability')
+            units.append(r"$\log \text{ Darcy}$")
+        else:
+            properties.append('permeability')
+            labels.append('Permeability')
+            units.append(r"$\text{Darcy}$")
 
     fig1 = plot_histograms(generated_data, valid_data, properties, labels, units, nbins)
     fig1_kde, divergences = plot_kde(generated_data, valid_data, properties, labels, units)
 
     fig2 = plot_boxplots(generated_data, valid_data, properties, labels, units)
 
-    generated_tpc_dist, _ = extract_property(generated_stats, 'tpc_dist')
-    valid_tpc_dist, _ = extract_property(valid_stats, 'tpc_dist')
+    fig3, tpc_divergences = plot_two_point_correlation_comparison(generated_stats, valid_stats, voxel_size_um, ind)
 
-    # tpc_dists have units of um
-    generated_tpc_dist *= voxel_size_um
-    valid_tpc_dist *= voxel_size_um
-
-    generated_tpc_prob, _ = extract_property(generated_stats, 'tpc_prob')
-    valid_tpc_prob, _ = extract_property(valid_stats, 'tpc_prob')
-
-    # # TODO: DELETE THAT
-    generated_tpc_dist = generated_tpc_dist[ind]
-    generated_tpc_prob = generated_tpc_prob[ind]
-
-    mean_generated_tpc_prob = np.mean(generated_tpc_prob, 0)
-    std_generated_tpc_prob = np.std(generated_tpc_prob, 0)
-    mean_valid_tpc_prob = np.mean(valid_tpc_prob, 0)
-    std_valid_tpc_prob = np.std(valid_tpc_prob, 0)
-
-    x_generated = generated_tpc_dist.mean(axis=0)
-    x_valid = valid_tpc_dist.mean(axis=0)
-
-    fig3, ax = plt.subplots(1, 1, figsize=(6, 6))
-
-    ax.fill_between(x_generated,
-                    y1=mean_generated_tpc_prob-2*std_generated_tpc_prob,
-                    y2=mean_generated_tpc_prob+2*std_generated_tpc_prob,
-                    color='red',
-                    alpha=0.2)
-    ax.fill_between(x_valid,
-                    y1=mean_valid_tpc_prob-2*std_valid_tpc_prob,
-                    y2=mean_valid_tpc_prob+2*std_valid_tpc_prob,
-                    color='blue',
-                    alpha=0.2)
-
-    ax.plot(x_generated, mean_generated_tpc_prob, color='red')
-    ax.plot(x_valid, mean_valid_tpc_prob, color='blue')
-    ax.set_xlabel(r"$r$ $(\mu m)$")
-    ax.set_ylabel(r"$(s_2 - \phi^2)/(\phi - \phi^2)$")
-    ax.legend()
-    ax.set_title("Comparison of two point correlation")
+    divergences['tpc_divergences'] = tpc_divergences
 
     # Example usage
 
@@ -167,9 +155,10 @@ def plot_unconditional_metrics(datapath,
     generated_psd_centers *= voxel_size_um
     valid_psd_centers *= voxel_size_um
 
-    fig4 = plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_psd_centers,
+    fig4, psd_divergences = plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_psd_centers,
                                        valid_psd_pdf, valid_psd_cdf, valid_psd_centers)
-
+    # Add pore size distribution divergences to overall divergences
+    divergences['pore_size_distribution'] = psd_divergences
     savefolder = pathlib.Path(f"{datapath}/figures")
     os.makedirs(savefolder, exist_ok=True)
 
@@ -178,16 +167,17 @@ def plot_unconditional_metrics(datapath,
 
     print('here')
     print(savefolder)
-    fig1.savefig(savefolder / f"stats_histograms{plot_tag}.png")
-    fig1_kde.savefig(savefolder / f"stats_kde{plot_tag}.png")
-    fig2.savefig(savefolder / f"stats_boxplots{plot_tag}.png")
-    fig3.savefig(savefolder / f"tpc_comparison{plot_tag}.png")
-    fig4.savefig(savefolder / f"psd_comparison{plot_tag}.png")
+    fig1.savefig(savefolder / f"stats_histograms{plot_tag}.png", dpi=300)
+    fig1_kde.savefig(savefolder / f"stats_kde{plot_tag}.png", dpi=300)
+    fig2.savefig(savefolder / f"stats_boxplots{plot_tag}.png", dpi=300)
+    fig3.savefig(savefolder / f"tpc_comparison{plot_tag}.png", dpi=300)
+    fig4.savefig(savefolder / f"psd_comparison{plot_tag}.png", dpi=300)
 
     # Save KL divergences to JSON file
     divergences_path = savefolder / f"stats_divergences{plot_tag}.json"
     with open(divergences_path, "w") as f:
         json.dump(divergences, f, indent=4)
+
 
 
 def plot_conditional_metrics(datapath, voxel_size_um=None, filter_dict=None, plot_tag=''):
@@ -548,6 +538,84 @@ def plot_boxplots(generated_data, valid_data, properties, labels, units):
     return fig
 
 
+def plot_two_point_correlation_comparison(generated_stats, valid_stats, voxel_size_um, ind=None):
+    """Plot comparison of two point correlation between generated and validation data.
+    
+    Parameters
+    ----------
+    generated_stats : dict
+        Dictionary containing generated statistics
+    valid_stats : dict
+        Dictionary containing validation statistics 
+    voxel_size_um : float
+        Voxel size in micrometers
+    ind : array-like, optional
+        Indices to select from generated data
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure containing the two point correlation comparison plot
+    divergences : dict
+        Dictionary containing KL divergence, Hellinger distance and mean relative error
+    """
+    generated_tpc_dist, _ = extract_property(generated_stats, 'tpc_dist')
+    valid_tpc_dist, _ = extract_property(valid_stats, 'tpc_dist')
+
+    # tpc_dists have units of um
+    generated_tpc_dist *= voxel_size_um
+    valid_tpc_dist *= voxel_size_um
+
+    generated_tpc_prob, _ = extract_property(generated_stats, 'tpc_prob')
+    valid_tpc_prob, _ = extract_property(valid_stats, 'tpc_prob')
+
+    if ind is not None:
+        generated_tpc_dist = generated_tpc_dist[ind]
+        generated_tpc_prob = generated_tpc_prob[ind]
+
+    mean_generated_tpc_prob = np.mean(generated_tpc_prob, 0)
+    std_generated_tpc_prob = np.std(generated_tpc_prob, 0)
+    mean_valid_tpc_prob = np.mean(valid_tpc_prob, 0)
+    std_valid_tpc_prob = np.std(valid_tpc_prob, 0)
+
+    x_generated = generated_tpc_dist.mean(axis=0)
+    x_valid = valid_tpc_dist.mean(axis=0)
+
+    # Calculate divergences
+    N = len(mean_valid_tpc_prob)
+    kl_div = np.sum(mean_valid_tpc_prob * np.log(mean_valid_tpc_prob / mean_generated_tpc_prob)) / N
+    hellinger_dist = np.sum(np.sqrt(mean_valid_tpc_prob * mean_generated_tpc_prob)) / N
+    rel_error = np.mean(np.abs(mean_valid_tpc_prob - mean_generated_tpc_prob) / mean_valid_tpc_prob)
+
+    divergences = {
+        'kl_divergence': float(kl_div),
+        'hellinger_distance': float(hellinger_dist),
+        'mean_relative_error': float(rel_error)
+    }
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+
+    ax.fill_between(x_generated,
+                    y1=mean_generated_tpc_prob-2*std_generated_tpc_prob,
+                    y2=mean_generated_tpc_prob+2*std_generated_tpc_prob,
+                    color='red',
+                    alpha=0.2)
+    ax.fill_between(x_valid,
+                    y1=mean_valid_tpc_prob-2*std_valid_tpc_prob,
+                    y2=mean_valid_tpc_prob+2*std_valid_tpc_prob,
+                    color='blue',
+                    alpha=0.2)
+
+    ax.plot(x_generated, mean_generated_tpc_prob, color='red', label='Generated')
+    ax.plot(x_valid, mean_valid_tpc_prob, color='blue', label='Valid')
+    ax.set_xlabel(r"$r$ $(\mu m)$")
+    ax.set_ylabel(r"$(s_2 - \phi^2)/(\phi - \phi^2)$")
+    ax.legend()
+    ax.set_title("Comparison of two point correlation")
+    
+    return fig, divergences
+
+
 def plot_histograms(generated_data, valid_data, properties, labels, units, nbins=20):
     fig, ax = plt.subplots(1, len(properties), figsize=(5*len(properties), 5))
 
@@ -580,8 +648,8 @@ def plot_kde(generated_data, valid_data, properties, labels, units):
         # Expand min and max values by 10%
         min_value = min_value - 0.2 * (max_value - min_value)
         max_value = max_value + 0.2 * (max_value - min_value)
-
-        if label in ["Porosity", "Surface Area Density"]:
+        
+        if label in ["Porosity", "Surface Area Density", "Mean Pore Size", "Permeability"]:
             min_value = max(min_value, 0.0)
 
         gen_kde = stats.gaussian_kde(gen.flatten())
@@ -598,10 +666,14 @@ def plot_kde(generated_data, valid_data, properties, labels, units):
         # Calculate KL divergence and Hellinger distance between valid and generated distributions
         kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(), n_samples=10000)
         hellinger_dist = hellinger_distance_kde_mc(val.flatten(), gen.flatten(), n_samples=10000)
-        
+        if label in ['Porosity', 'Surface Area Density', 'Mean Pore Size', 'Permeability']:
+            rel_error = mean_relative_error(val.flatten(), gen.flatten())
+        else:
+            rel_error = np.nan
         divergences[prop] = {
             'kl_divergence': kl_div,
-            'hellinger_distance': hellinger_dist
+            'hellinger_distance': hellinger_dist,
+            'mean_relative_error': rel_error
         }
 
     fig.tight_layout()
@@ -631,8 +703,33 @@ def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_
         ax.fill_between(x_interp, np.maximum(kde_mean - 2*kde_std, 0), kde_mean + 2*kde_std, alpha=0.3, color=color)
         ax.plot(x_interp, kde_mean, color=color, label=label)
 
-    direct_kde_plot(ax1, generated_psd_pdf, generated_psd_centers, 'red', 'Generated')
-    direct_kde_plot(ax1, valid_psd_pdf, valid_psd_centers, 'blue', 'Valid')
+        return kde_mean
+
+    gen_mean = direct_kde_plot(ax1, generated_psd_pdf, generated_psd_centers, 'red', 'Generated')
+    val_mean = direct_kde_plot(ax1, valid_psd_pdf, valid_psd_centers, 'blue', 'Valid')
+
+    # Calculate divergence metrics for PDFs
+    dx = np.diff(x_interp)[0]  # Approximate integration step
+    
+    # KL divergence integral
+    eps = 1e-10
+    kl_integrand = val_mean * np.log((val_mean + eps) / (gen_mean + eps))
+    kl_div = np.trapz(kl_integrand, x_interp)
+    
+    # Hellinger distance integral
+    hellinger_integrand = (np.sqrt(val_mean) - np.sqrt(gen_mean))**2
+    hellinger_dist = np.sqrt(0.5 * np.trapz(hellinger_integrand, x_interp))
+    
+    # Mean relative error (using means of distributions)
+    val_mean_integral = np.trapz(val_mean, x_interp)
+    gen_mean_integral = np.trapz(gen_mean, x_interp)
+    rel_error = np.abs(val_mean_integral - gen_mean_integral) / val_mean_integral
+
+    divergences = {
+        'kl_divergence': kl_div,
+        'hellinger_distance': hellinger_dist,
+        'mean_relative_error': rel_error
+    }
 
     ax1.set_xlabel(r'Pore Size $(\mu m)$')
     ax1.set_ylabel('Probability Density')
@@ -670,7 +767,7 @@ def plot_pore_size_distribution(generated_psd_pdf, generated_psd_cdf, generated_
     ax2.set_xscale('log')
 
     plt.tight_layout()
-    return fig
+    return fig, divergences
 
 
 def kl_divergence_kde_mc(sample1, sample2, n_samples=10000, seed=None):
@@ -770,3 +867,33 @@ def hellinger_distance_kde_mc(sample1, sample2, n_samples=10000, seed=None):
     hellinger = np.sqrt(integral)
 
     return hellinger
+
+
+def mean_relative_error(sample1, sample2):
+    """
+    Calculate mean relative error between two samples.
+    
+    Parameters:
+    -----------
+    sample1 : array-like
+        First sample (generated distribution)
+    sample2 : array-like
+        Second sample (validation distribution)
+        
+    Returns:
+    --------
+    float
+        Mean relative error |mean(gen) - mean(val)|/|mean(val)|
+    """
+    # Convert inputs to numpy arrays
+    sample1 = np.asarray(sample1)
+    sample2 = np.asarray(sample2)
+    
+    # Calculate means
+    mean1 = np.mean(sample1)
+    mean2 = np.mean(sample2)
+    
+    # Calculate relative error
+    rel_error = np.abs(mean1 - mean2) / np.abs(mean2)
+    
+    return rel_error
