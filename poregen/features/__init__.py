@@ -6,5 +6,6 @@ from . import surface_area
 from . import permeability
 from .feature_extractors import (make_feature_extractor,
                                  make_composite_feature_extractor,
-                                 AVAILABLE_EXTRACTORS)
+                                 AVAILABLE_EXTRACTORS,
+                                 EXTRACTORS_RETURN_KEYS_MAP)
 from .dataset_variance import diagonal_variance

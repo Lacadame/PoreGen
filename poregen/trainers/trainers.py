@@ -125,6 +125,193 @@ def pore_vae_load(cfg_path, checkpoint_path, load_data=False, data_path=None, im
     return res
 
 
+def pore_eval_cached(cfg_path,
+                    stats_folder_path: str | pathlib.Path,
+                    extractors: str | list[str] = '3d',
+                    extractor_kwargs: dict[str, KwargsType] = {},
+                    device_id: int = 0,
+                    which_stats: str = "both"):
+    """Load cached samples and recalculate only missing properties.
+
+    Args:
+        cfg_path: Path to config file to get voxel size
+        stats_folder_path: Path to folder containing saved samples and stats
+        extractors: List of extractors to calculate
+        extractor_kwargs: Kwargs for extractors
+        device_id: GPU device id
+        which_stats: Which stats to calculate - "both", "generated", or "valid"
+    """
+    stats_folder = pathlib.Path(stats_folder_path)
+    generated_folder = stats_folder / "generated_samples"
+    valid_folder = stats_folder / "valid_samples"
+
+    if which_stats not in ["both", "generated", "valid"]:
+        raise ValueError("which_stats must be one of: 'both', 'generated', 'valid'")
+
+    # Check if folders exist
+    if not generated_folder.exists() or not valid_folder.exists():
+        raise FileNotFoundError("Sample folders not found. Run pore_eval first.")
+
+    # Load config to get voxel size
+    with open(cfg_path, 'r') as f:
+        cfg = yaml.safe_load(f)
+    voxel_size_um = cfg['data']['voxel_size_um']
+
+    # Load existing stats if they exist
+    generated_stats_path = stats_folder / "generated_stats.json"
+    valid_stats_path = stats_folder / "valid_stats.json"
+    existing_generated_stats = {}
+    existing_valid_stats = {}
+
+    if generated_stats_path.exists():
+        with open(generated_stats_path, 'r') as f:
+            existing_generated_stats = json.load(f)
+    if valid_stats_path.exists():
+        with open(valid_stats_path, 'r') as f:
+            existing_valid_stats = json.load(f)
+
+    # Load samples
+    generated_samples = []
+    valid_samples = []
+
+    # Load generated samples if needed
+    if which_stats in ["both", "generated"]:
+        generated_files = sorted(generated_folder.glob("*.npy"))
+        if not generated_files:
+            raise FileNotFoundError("No generated samples found")
+        for file in generated_files:
+            generated_samples.append(np.load(file))
+        generated_samples = np.stack(generated_samples)
+
+    # Load valid samples if needed
+    if which_stats in ["both", "valid"]:
+        valid_files = sorted(valid_folder.glob("*.npy"))
+        if not valid_files:
+            raise FileNotFoundError("No validation samples found")
+        for file in valid_files:
+            valid_samples.append(np.load(file))
+        valid_samples = np.stack(valid_samples)
+
+    # Setup extractors
+    if isinstance(extractors, str):
+        if extractors == '3d':
+            extractors = ['porosimetry_from_voxel',
+                         'two_point_correlation_from_voxel',
+                         'permeability_from_pnm',
+                         'porosity',
+                         'effective_porosity',
+                         'surface_area_density_from_voxel']
+        elif extractors == '2d':
+            extractors = ['porosimetry_from_slice',
+                         'two_point_correlation_from_slice',
+                         'porosity',
+                         'effective_porosity',
+                         'surface_area_density_from_slice']
+
+    # Add voxel size for permeability
+    if 'permeability_from_pnm' in extractors:
+        if 'permeability_from_pnm' in extractor_kwargs:
+            extractor_kwargs['permeability_from_pnm']['voxel_length'] = voxel_size_um*1e-6
+        else:
+            extractor_kwargs['permeability_from_pnm'] = {'voxel_length': voxel_size_um*1e-6}
+
+    # First determine which extractors are needed based on missing statistics
+    needed_extractors = set()
+    
+    # Check generated samples for missing statistics
+    if which_stats in ["both", "generated"]:
+        for i in range(len(generated_samples)):
+            sample_id = f"{i+1:05d}"
+            if sample_id not in existing_generated_stats:
+                needed_extractors.update(extractors)
+                break
+            for extractor_name in extractors:
+                required_keys = poregen.features.feature_extractors.EXTRACTORS_RETURN_KEYS_MAP[extractor_name]
+                if not all(key in existing_generated_stats[sample_id] for key in required_keys):
+                    needed_extractors.add(extractor_name)
+
+    # Check validation samples for missing statistics 
+    if which_stats in ["both", "valid"]:
+        for i in range(len(valid_samples)):
+            sample_id = f"{i+1:05d}"
+            if sample_id not in existing_valid_stats:
+                needed_extractors.update(extractors)
+                break
+            for extractor_name in extractors:
+                required_keys = poregen.features.feature_extractors.EXTRACTORS_RETURN_KEYS_MAP[extractor_name]
+                if not all(key in existing_valid_stats[sample_id] for key in required_keys):
+                    needed_extractors.add(extractor_name)
+
+    # Only create extractors that are needed
+    needed_extractors = list(needed_extractors)
+
+    print("NEEDED EXTRACTORS", needed_extractors)
+    if needed_extractors:
+        needed_extractor_kwargs = {k: extractor_kwargs.get(k, {}) for k in needed_extractors}
+        
+        # Add voxel size for permeability if needed
+        if 'permeability_from_pnm' in needed_extractors:
+            if 'permeability_from_pnm' in needed_extractor_kwargs:
+                needed_extractor_kwargs['permeability_from_pnm']['voxel_length'] = voxel_size_um*1e-6
+            else:
+                needed_extractor_kwargs['permeability_from_pnm'] = {'voxel_length': voxel_size_um*1e-6}
+
+        extractor = poregen.features.feature_extractors.make_composite_feature_extractor(
+            needed_extractors,
+            extractor_kwargs=needed_extractor_kwargs
+        )
+
+    # Process generated samples
+    if which_stats in ["both", "generated"]:
+        generated_stats_all = []
+        for i, generated_sample in enumerate(generated_samples):
+            sample_id = f"{i+1:05d}"
+            
+            if sample_id in existing_generated_stats:
+                stats = existing_generated_stats[sample_id].copy()
+                # Only calculate missing properties
+                if needed_extractors:
+                    new_stats = extractor(torch.tensor(generated_sample))
+                    convert_dict_items_to_numpy(new_stats)
+                    stats.update(new_stats)
+            else:
+                # Calculate all required properties
+                stats = extractor(torch.tensor(generated_sample))
+                convert_dict_items_to_numpy(stats)
+                
+            generated_stats_all.append(stats)
+
+        # Save generated stats
+        generated_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(generated_stats_all)}
+        with open(stats_folder / "generated_stats.json", "w") as f:
+            json.dump(generated_stats_dict, f, cls=NumpyEncoder)
+
+    # Process validation samples
+    if which_stats in ["both", "valid"]:
+        valid_stats_all = []
+        for i, valid_sample in enumerate(valid_samples):
+            sample_id = f"{i+1:05d}"
+            
+            if sample_id in existing_valid_stats:
+                stats = existing_valid_stats[sample_id].copy()
+                # Only calculate missing properties
+                if needed_extractors:
+                    new_stats = extractor(torch.tensor(valid_sample))
+                    convert_dict_items_to_numpy(new_stats)
+                    stats.update(new_stats)
+            else:
+                # Calculate all required properties
+                stats = extractor(torch.tensor(valid_sample))
+                convert_dict_items_to_numpy(stats)
+                
+            valid_stats_all.append(stats)
+
+        # Save valid stats
+        valid_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(valid_stats_all)}
+        with open(stats_folder / "valid_stats.json", "w") as f:
+            json.dump(valid_stats_dict, f, cls=NumpyEncoder)
+
+
 def pore_eval(cfg_path,  # noqa: C901
               checkpoint_path,
               nsamples: int = 64,
@@ -240,15 +427,17 @@ def pore_eval(cfg_path,  # noqa: C901
         else:
             if extractors == '3d':
                 extractors = ['porosimetry_from_voxel',
-                            'two_point_correlation_from_voxel',
-                            'permeability_from_pnm',
-                            'porosity',
-                            'surface_area_density_from_voxel']
+                              'two_point_correlation_from_voxel',
+                              'permeability_from_pnm',
+                              'porosity',
+                              'effective_porosity',
+                              'surface_area_density_from_voxel']
             elif extractors == '2d':
                 extractors = ['porosimetry_from_slice',
-                            'two_point_correlation_from_slice',
-                            'porosity',
-                            'surface_area_density_from_slice']
+                              'two_point_correlation_from_slice',
+                              'porosity',
+                              'effective_porosity',
+                              'surface_area_density_from_slice']
 
     # A hack to put the voxel size for permeability_from_pnm
     if 'permeability_from_pnm' in extractors:

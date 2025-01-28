@@ -1,8 +1,12 @@
+import click
 import poregen.metrics
 
-def main():
-    # datapath = '/home/ubuntu/repos/PoreGen/savedmodels/experimental/20250108-bps-ldm-doddington256-p_cond-aws/stats/stats-100-karras-guided/model-epoch=069-val_loss=0.051829'
-    # poregen.metrics.plot_unconditional_metrics(datapath=datapath, nbins=20)
+@click.command()
+@click.option('--datapath', type=click.Path(exists=True), required=True,
+              help='Path to the folder containing the stats files')
+def main(datapath):
+    poregen.metrics.plot_unconditional_metrics(datapath=datapath, nbins=20, show_permeability=False)
 
     
-    
+if __name__ == "__main__":
+    main()
