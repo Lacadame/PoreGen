@@ -151,7 +151,10 @@ def extract_porosity(slice):
 
 def extract_effective_porosity(slice):
     volume = 1 - slice[0].numpy()
+    porosity = volume.mean()
+    print(volume.shape)
     effective_porosity = porespy.filters.fill_blind_pores(volume).mean()
+    print(porosity, effective_porosity)
     return {'effective_porosity': torch.tensor([effective_porosity], dtype=torch.float)}
 
 

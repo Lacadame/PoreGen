@@ -112,6 +112,7 @@ temp/
 
 # Ignore all notebooks in the exploratory directories
 notebooks/exploratory/**/*
+notebooks/tutorials/exploratory/*
 
 # Do not ignore notebooks that start with GITSHARE
 !notebooks/exploratory/**/GITSHARE*.ipynb

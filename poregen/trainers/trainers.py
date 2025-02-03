@@ -130,7 +130,8 @@ def pore_eval_cached(cfg_path,
                     extractors: str | list[str] = '3d',
                     extractor_kwargs: dict[str, KwargsType] = {},
                     device_id: int = 0,
-                    which_stats: str = "both"):
+                    which_stats: str = "both",
+                    forced_extractors: str | list[str] | None = None):
     """Load cached samples and recalculate only missing properties.
 
     Args:
@@ -140,6 +141,7 @@ def pore_eval_cached(cfg_path,
         extractor_kwargs: Kwargs for extractors
         device_id: GPU device id
         which_stats: Which stats to calculate - "both", "generated", or "valid"
+        forced_extractors: List of extractors to force recalculation for, even if cached
     """
     stats_folder = pathlib.Path(stats_folder_path)
     generated_folder = stats_folder / "generated_samples"
@@ -208,6 +210,22 @@ def pore_eval_cached(cfg_path,
                          'effective_porosity',
                          'surface_area_density_from_slice']
 
+    # Setup forced extractors similarly
+    if isinstance(forced_extractors, str):
+        if forced_extractors == '3d':
+            forced_extractors = ['porosimetry_from_voxel',
+                               'two_point_correlation_from_voxel',
+                               'permeability_from_pnm',
+                               'porosity',
+                               'effective_porosity',
+                               'surface_area_density_from_voxel']
+        elif forced_extractors == '2d':
+            forced_extractors = ['porosimetry_from_slice',
+                               'two_point_correlation_from_slice',
+                               'porosity',
+                               'effective_porosity',
+                               'surface_area_density_from_slice']
+
     # Add voxel size for permeability
     if 'permeability_from_pnm' in extractors:
         if 'permeability_from_pnm' in extractor_kwargs:
@@ -218,6 +236,10 @@ def pore_eval_cached(cfg_path,
     # First determine which extractors are needed based on missing statistics
     needed_extractors = set()
     
+    # Add forced extractors to needed_extractors
+    if forced_extractors:
+        needed_extractors.update(forced_extractors)
+    
     # Check generated samples for missing statistics
     if which_stats in ["both", "generated"]:
         for i in range(len(generated_samples)):
@@ -226,6 +248,10 @@ def pore_eval_cached(cfg_path,
                 needed_extractors.update(extractors)
                 break
             for extractor_name in extractors:
+                if forced_extractors is not None:
+                    if extractor_name in forced_extractors:
+                        needed_extractors.add(extractor_name)
+                        continue
                 required_keys = poregen.features.feature_extractors.EXTRACTORS_RETURN_KEYS_MAP[extractor_name]
                 if not all(key in existing_generated_stats[sample_id] for key in required_keys):
                     needed_extractors.add(extractor_name)
@@ -238,6 +264,10 @@ def pore_eval_cached(cfg_path,
                 needed_extractors.update(extractors)
                 break
             for extractor_name in extractors:
+                if forced_extractors is not None:
+                    if extractor_name in forced_extractors:
+                        needed_extractors.add(extractor_name)
+                        continue
                 required_keys = poregen.features.feature_extractors.EXTRACTORS_RETURN_KEYS_MAP[extractor_name]
                 if not all(key in existing_valid_stats[sample_id] for key in required_keys):
                     needed_extractors.add(extractor_name)
@@ -269,7 +299,7 @@ def pore_eval_cached(cfg_path,
             
             if sample_id in existing_generated_stats:
                 stats = existing_generated_stats[sample_id].copy()
-                # Only calculate missing properties
+                # Only calculate missing properties or forced ones
                 if needed_extractors:
                     new_stats = extractor(torch.tensor(generated_sample))
                     convert_dict_items_to_numpy(new_stats)
@@ -294,7 +324,7 @@ def pore_eval_cached(cfg_path,
             
             if sample_id in existing_valid_stats:
                 stats = existing_valid_stats[sample_id].copy()
-                # Only calculate missing properties
+                # Only calculate missing properties or forced ones
                 if needed_extractors:
                     new_stats = extractor(torch.tensor(valid_sample))
                     convert_dict_items_to_numpy(new_stats)
