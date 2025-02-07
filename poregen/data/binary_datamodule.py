@@ -1,3 +1,5 @@
+from typing import Any
+
 from torch.utils.data import DataLoader
 import lightning as L
 from pathlib import Path
@@ -98,5 +100,5 @@ class BinaryVoxelDataModule(L.LightningDataModule):
                           num_workers=self.cfg['num_workers'])
 
 
-def get_binary_datamodule(data_path, cfg):  # noqa: C901
+def get_binary_datamodule(data_path: str | Path, cfg: dict[str, Any]) -> BinaryVoxelDataModule:  # noqa: C901
     return BinaryVoxelDataModule(data_path, cfg)

@@ -1,3 +1,5 @@
+from typing import Any
+
 import diffsci.models
 import diffsci.models.nets.autoencoderldm3d
 
@@ -37,7 +39,12 @@ def get_single_embedding(embedding_type, embedding_kwargs, dembed):
     return embed
 
 
-def get_model(cfg):
+def get_model(cfg: dict[str, Any]) -> dict[str, Any]:
+    """
+        Returns a dict with keys 'model' and 'autoencoder'.
+        'model' contains a PUNetG or PUNetGCond model
+        'autoencoder' contains an autoencoder model or None
+    """
     model_type = cfg['type']
     items = dict()
     if model_type == 'PUNetG':
@@ -57,7 +64,7 @@ def get_model(cfg):
         channel_conditional_items = model_params.pop('channel_conditional_items', None)
 
         if channel_conditional_items:
-            raise NotImplementedError
+            raise NotImplementedError("Channel conditional items are not implemented in get_model")
             model = diffsci.models.PUNetGCond(punetg_config,
                                               conditional_embedding=embed,
                                               channel_conditional_items=channel_conditional_items,
