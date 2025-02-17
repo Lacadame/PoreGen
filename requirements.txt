@@ -24,3 +24,5 @@ lightning
 torchmetrics
 jaxtyping
 netCDF4
+tslearn
+joblib

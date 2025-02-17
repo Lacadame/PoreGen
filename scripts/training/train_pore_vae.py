@@ -1,6 +1,6 @@
 import pathlib
 import click
-import sys
+
 import poregen.data
 import poregen.features
 import poregen.models
@@ -18,33 +18,21 @@ import poregen.trainers
                    'Use "best" for the best checkpoint, or provide a specific path. Default is None.')
 @click.option('--fast_dev_run', is_flag=True, default=False,
               help='If set, disables saving and trains only a few steps.')
-@click.option('--load_on_fit', is_flag=True, default=False,
-              help='If set, loads the checkpoint only on fit, not on initialization.')
-def train(datapath, cfgpath, checkpoint_path, fast_dev_run, load_on_fit):
+def train(datapath, cfgpath, checkpoint_path, fast_dev_run):
     """
     Train a pore generation model using the specified data and configuration.
     """
-    try:
-        if datapath is not None:
-            datapath = pathlib.Path(datapath)
-        cfgpath = pathlib.Path(cfgpath)
+    if datapath is not None:
+        datapath = pathlib.Path(datapath)
+    cfgpath = pathlib.Path(cfgpath)
 
-        # Run training
-        poregen.trainers.pore_train(cfgpath,
+    # Run training
+    poregen.trainers.pore_vae_train(cfgpath,
                                     datapath,
                                     checkpoint_path=checkpoint_path,
-                                    fast_dev_run=fast_dev_run,
-                                    load_on_fit=load_on_fit)
+                                    fast_dev_run=fast_dev_run)
 
-        click.echo("Training completed.")
-        sys.exit(0)  # Successful completion
-
-    except KeyboardInterrupt:
-        click.echo("Training interrupted by user.")
-        sys.exit(1)  # Interrupted
-#    except Exception as e:
-#        click.echo(f"Training failed with error: {str(e)}")
-#        sys.exit(2)  # Other error
+    click.echo("Training completed.")
 
 
 if __name__ == '__main__':
