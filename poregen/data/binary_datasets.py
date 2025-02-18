@@ -46,7 +46,7 @@ class BaseVoxelDataset(Dataset):
         subslice: Union[int, List[int]] = 64,
         dataset_size: int = 34560,
         voxel_downscale_factor: int = 1,
-        transform: transforms.Transform = None,
+        transform: bool = False,
         feature_extractor: Callable = None,
         center: bool = False,
         invert: bool = False,
@@ -89,7 +89,8 @@ class BaseVoxelDataset(Dataset):
 
     def process_crop(self, crop: torch.Tensor) -> torch.Tensor:
         if self.transform:
-            crop = self.transform(crop)
+            transform = get_standard_binary_transforms()
+            crop = transform(crop)
         if self.invert:
             crop = 1 - crop
         if self.center:

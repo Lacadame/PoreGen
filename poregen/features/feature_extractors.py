@@ -6,6 +6,8 @@ import porespy
 import torch
 
 from . import porosimetry
+from . import permeability
+from . import surface_area
 
 
 KwargsType = dict[str, Any]
@@ -19,101 +21,147 @@ AVAILABLE_EXTRACTORS = [
     'porosimetry_from_voxel_slice',
     'porosimetry_from_voxel',
     'porosimetry_from_slice',
+    'permeability_from_pnm',
+    'surface_area_density_from_slice',
+    'surface_area_density_from_voxel',
+    'surface_area_densityfrom_voxel_slice',
+    'effective_porosity'
 ]
 
+EXTRACTORS_RETURN_KEYS_MAP = {
+    'porosity': ['porosity'],
+    'effective_porosity': ['effective_porosity'],
+    'surface_area_density_from_slice': ['surface_area_density'],
+    'surface_area_density_from_voxel': ['surface_area_density'],
+    'surface_area_density_from_voxel_slice': ['surface_area_density'],
+    'two_point_correlation_from_slice': ['tpc_dist', 'tpc_prob'],
+    'two_point_correlation_from_voxel': ['tpc_dist', 'tpc_prob'],
+    'two_point_correlation_from_voxel_slice': ['tpc_dist', 'tpc_prob'],
+    'porosimetry_from_slice': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
+                               'root_momenta', 'standardized_momenta'],
+    'porosimetry_from_voxel': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
+                               'root_momenta', 'standardized_momenta'],
+    'porosimetry_from_voxel_slice': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
+                                     'root_momenta', 'standardized_momenta'],
+    'permeability_from_pnm': ['permeability']
+}
 
 # Extractors
 
-def extract_two_point_correlation_from_voxel_slice(
-        voxel,
-        bins: int = 100):
-    voxel = voxel[0]
+def extract_two_point_correlation_base(data, bins: int = 32):
+    data = data[0].float()
+    tpc_data = porespy.metrics.two_point_correlation((1 - data).numpy(), bins=bins)
+    dist = torch.tensor(tpc_data.distance, dtype=torch.float)
+    prob = torch.tensor(tpc_data.probability_scaled, dtype=torch.float)
+    prob = torch.nan_to_num(prob)
+    return {'tpc_dist': dist, 'tpc_prob': prob}
+
+
+def extract_two_point_correlation_from_voxel_slice(voxel, bins: int = 32):
     ind = np.random.randint(0, voxel.shape[0])
     slice = voxel[ind, :, :]
-    data = porespy.metrics.two_point_correlation((1 - slice).numpy(), bins=bins)
-    dist = torch.tensor(data.distance, dtype=torch.float)
-    prob = torch.tensor(data.probability_scaled, dtype=torch.float)
-    prob = torch.nan_to_num(prob)
-
-    return {'tpc_dist': dist, 'tpc_prob': prob}
+    return extract_two_point_correlation_base(slice, bins)
 
 
-def extract_two_point_correlation_from_voxel(
-        voxel,
-        bins: int = 100):
-    voxel = voxel[0]
-    data = porespy.metrics.two_point_correlation((1 - voxel).numpy(), bins=bins)
-    dist = torch.tensor(data.distance, dtype=torch.float)
-    prob = torch.tensor(data.probability_scaled, dtype=torch.float)
-    prob = torch.nan_to_num(prob)
-
-    return {'tpc_dist': dist, 'tpc_prob': prob}
+def extract_two_point_correlation_from_voxel(voxel, bins: int = 32):
+    return extract_two_point_correlation_base(voxel, bins)
 
 
-def extract_two_point_correlation_from_slice(
-        slice,
-        bins: int = 100):
-    slice = slice[0]
-    data = porespy.metrics.two_point_correlation((1 - slice).numpy(), bins=bins)
-    dist = torch.tensor(data.distance, dtype=torch.float)
-    prob = torch.tensor(data.probability_scaled, dtype=torch.float)
-    prob = torch.nan_to_num(prob)
-
-    return {'tpc_dist': dist, 'tpc_prob': prob}
+def extract_two_point_correlation_from_slice(slice, bins: int = 32):
+    return extract_two_point_correlation_base(slice, bins)
 
 
-def extract_porosimetry_from_slice(
-        slice,
-        bins: int = 100,
-        log: bool = False):
-    slice = slice[0]
-    im = porosimetry.local_thickness((1 - slice).numpy())
-    data = porespy.metrics.pore_size_distribution(
-        im,
-        bins=bins,
-        log=log)
-    bin_centers = torch.tensor(data.bin_centers.copy(), dtype=torch.float)
-    cdf = torch.tensor(data.cdf.copy(), dtype=torch.float)
-    pdf = torch.tensor(data.pdf.copy(), dtype=torch.float)
-    return {'psd_centers': bin_centers, 'psd_cdf': cdf, 'psd_pdf': pdf}
+def extract_porosimetry_base(data,
+                             bins: int = 32,
+                             log: bool = False,
+                             maximum_momentum: int = 4):
+    data = data[0].float()
+    im = porosimetry.local_thickness((1 - data).numpy())
+    psd_data = porespy.metrics.pore_size_distribution(im, bins=bins, log=log)
+    bin_centers = torch.tensor(psd_data.bin_centers.copy(), dtype=torch.float)
+    cdf = torch.tensor(psd_data.cdf.copy(), dtype=torch.float)
+    pdf = torch.tensor(psd_data.pdf.copy(), dtype=torch.float)
+
+    raw_data = im.flatten()[im.flatten() > 0]
+    data_size = raw_data.shape[0]
+    momenta = []
+    for i in range(maximum_momentum):
+        momenta.append((raw_data**(i+1)).sum(axis=0)/data_size)
+    log_momenta = torch.tensor(np.log(np.array(momenta)), dtype=torch.float)
+    root_momenta = momenta**np.array([1/(i+1) for i in range(maximum_momentum)])
+    root_momenta = torch.tensor(root_momenta, dtype=torch.float)
+
+    standardized_momenta = calculate_standardized_momenta(raw_data, maximum_momentum)
+
+    return {'psd_centers': bin_centers,
+            'psd_cdf': cdf,
+            'psd_pdf': pdf,
+            'log_momenta': log_momenta,
+            'root_momenta': root_momenta,
+            'standardized_momenta': standardized_momenta}
 
 
-def extract_porosimetry_from_voxel(
-        voxel,
-        bins: int = 100,
-        log: bool = False):
-    voxel = voxel[0]
-    im = porosimetry.local_thickness((1 - voxel).numpy())
-    data = porespy.metrics.pore_size_distribution(
-        im,
-        bins=bins,
-        log=log)
-    bin_centers = torch.tensor(data.bin_centers.copy(), dtype=torch.float)
-    cdf = torch.tensor(data.cdf.copy(), dtype=torch.float)
-    pdf = torch.tensor(data.pdf.copy(), dtype=torch.float)
-    return {'psd_centers': bin_centers, 'psd_cdf': cdf, 'psd_pdf': pdf}
+def extract_porosimetry_from_slice(slice,
+                                   bins: int = 32,
+                                   log: bool = False,
+                                   maximum_momentum: int = 4):
+    return extract_porosimetry_base(slice, bins, log, maximum_momentum)
 
 
-def extract_porosimetry_from_voxel_slice(
-        voxel,
-        bins: int = 10,
-        log: bool = False):
+def extract_porosimetry_from_voxel(voxel,
+                                   bins: int = 32,
+                                   log: bool = False,
+                                   maximum_momentum: int = 4):
+    return extract_porosimetry_base(voxel, bins, log, maximum_momentum)
+
+
+def extract_porosimetry_from_voxel_slice(voxel,
+                                         bins: int = 32,
+                                         log: bool = False,
+                                         maximum_momentum: int = 4):
     ind = np.random.randint(0, voxel.shape[0])
     slice = voxel[ind, :, :]
-    im = porosimetry.local_thickness((1 - slice).numpy())
-    data = porespy.metrics.pore_size_distribution(
-        im,
-        bins=bins,
-        log=log)
-    bin_centers = torch.tensor(data.bin_centers.copy(), dtype=torch.float)
-    cdf = torch.tensor(data.pdf.copy(), dtype=torch.float)
-    pdf = torch.tensor(data.pdf.copy(), dtype=torch.float)
-    return {'psd_centers': bin_centers, 'psd_cdf': cdf, 'psd_pdf': pdf}
+    return extract_porosimetry_base(slice, bins, log, maximum_momentum)
+
+
+def extract_surface_area_density_base(data, voxel_size: float = 1.0):
+    data = (1 - data[0].long()).numpy()
+    sa = surface_area.surface_area_density(data, voxel_size)
+    return {'surface_area_density': torch.tensor(sa, dtype=torch.float)}
+
+
+def extract_surface_area_density_from_slice(slice, voxel_size: float = 1.0):
+    return extract_surface_area_density_base(slice, voxel_size)
+
+
+def extract_surface_area_density_from_voxel(voxel, voxel_size: float = 1.0):
+    return extract_surface_area_density_base(voxel, voxel_size)
+
+
+def extract_surface_area_density_from_voxel_slice(voxel, voxel_size: float = 1.0):
+    ind = np.random.randint(0, voxel.shape[0])
+    slice = voxel[ind, :, :]
+    return extract_surface_area_density_base(slice, voxel_size)
 
 
 def extract_porosity(slice):
     porosity = torch.tensor([(1 - slice.numpy().mean())], dtype=torch.float)
     return {'porosity': porosity}
+
+
+def extract_effective_porosity(slice):
+    volume = 1 - slice[0].numpy()
+    effective_porosity = porespy.filters.fill_blind_pores(volume).mean()
+    return {'effective_porosity': torch.tensor([effective_porosity], dtype=torch.float)}
+
+
+def extract_permeability_from_pnm(voxel,
+                                  voxel_length=2.25e-6):
+    try:
+        perm = permeability.calculate_permeability_from_pnm(voxel, voxel_length)
+    except Exception:  # Could not calculate permeability
+        perm = np.nan*np.ones(len(voxel.shape) - 1)
+    return {'permeability': torch.tensor(perm, dtype=torch.float)}
 
 
 # Composite extractor
@@ -152,3 +200,25 @@ def make_composite_feature_extractor(extractor_names: list[str],
         extractors.append(make_feature_extractor(name, **args))
     # Make the composite extractor
     return extract_composite(extractors)
+
+
+# Auxiliary functions
+
+def calculate_standardized_momenta(raw_data, maximum_momentum):
+    # Calculate the standardized momenta
+    standardized_momenta = []
+    assert maximum_momentum > 0
+    # First standardized momenta is just the mean
+    mean = raw_data.mean()
+    standardized_momenta.append(mean)
+    if maximum_momentum > 1:
+        # Second standardized momenta is the standard deviation
+        std = raw_data.std()
+        standardized_momenta.append(std)
+    if maximum_momentum > 2:
+        for i in range(2, maximum_momentum):
+            # The rest of the standardized momenta are the centered raw data
+            centered_momenta = ((raw_data - mean)**(i+1)).mean()
+            centered_momenta = centered_momenta/(std**(i+1))*std
+            standardized_momenta.append(centered_momenta)
+    return torch.tensor(standardized_momenta, dtype=torch.float)

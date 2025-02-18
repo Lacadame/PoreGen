@@ -12,6 +12,12 @@ removed tqdm progress bar
 """
 
 
+def surface_area_density(im, voxel_size=1.0):
+    surface_area = region_surface_areas(im, voxel_size)
+    volume = np.prod(im.shape) * voxel_size**3
+    return surface_area / volume
+
+
 def region_surface_areas(regions, voxel_size=1, strel=None):
     r"""
     Extract the surface area of each region in a labeled image.

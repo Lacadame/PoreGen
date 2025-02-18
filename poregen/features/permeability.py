@@ -59,7 +59,4 @@ def calculate_permeability_from_pnm(volume, voxel_length):
         K = sf.rate(pores=pn.pores(f'{direction}min'))*(L/A)/dP*1e12  # Darcy
         permeabilities.append(K[0])
 
-    # Calculate geometric mean of permeabilities
-    geometric_mean_permeability = np.prod(permeabilities)**(1/3)
-
-    return geometric_mean_permeability
+    return np.array(permeabilities)
