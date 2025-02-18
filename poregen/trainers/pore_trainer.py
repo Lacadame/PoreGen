@@ -234,7 +234,7 @@ class PoreTrainer:
         if shape is None:
             shape = self.get_shape_from_data_config()
         if nsteps is None:
-            if integrator == 'karras':
+            if integrator == 'karras' or integrator == 'sde':
                 nsteps = 256
             else:
                 nsteps = 50
