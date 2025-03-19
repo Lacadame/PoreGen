@@ -104,3 +104,41 @@ def get_model(cfg: dict[str, Any]) -> dict[str, Any]:
 
     items['autoencoder'] = vae_module
     return items
+
+
+def get_autoencoder(config: dict[str, Any]):
+    """
+    Load an autoencoder model based on the provided configuration.
+    
+    Args:
+        config: Configuration dictionary for the autoencoder
+        
+    Returns:
+        dict: Dictionary containing the autoencoder model
+    """
+    items = {}
+    
+    if config:
+        autoencoder_type = config['type']
+        if autoencoder_type == 'AutoencoderKL':
+            checkpoint_path = config['checkpoint_path']
+            lossconfig = diffsci.models.nets.autoencoderldm3d.lossconfig(
+                kl_weight=config.get('kl_weight', 1e-4)
+            )
+            ddconfig = diffsci.models.nets.autoencoderldm3d.ddconfig(
+                resolution=config['resolution'],
+                has_mid_attn=config.get('has_mid_attn', False)
+            )
+            vae_module = diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
+                checkpoint_path,
+                ddconfig=ddconfig,
+                lossconfig=lossconfig
+            )
+            vae_module.eval()
+        else:
+            raise ValueError(f"Unsupported autoencoder type: {autoencoder_type}")
+    else:
+        vae_module = None
+
+    items['autoencoder'] = vae_module
+    return items
