@@ -126,7 +126,7 @@ scripts/training/old/*
 repopack-output.txt
 
 # # Delete the yaml config files
-# configs/*
+configs/*
 
 # queue mangaer
 queue_manager.log
