@@ -1,29 +1,55 @@
 import os
 import glob
 import warnings
+from typing import Any, Optional, Union, List, Dict
 
 import torch
 import lightning
 import lightning.pytorch.callbacks as pl_callbacks
 import lightning.pytorch.loggers as pl_loggers
 import transformers
+import numpy as np
 
 import diffsci.models
 from diffsci.models import KarrasModule, KarrasModuleConfig
+from lightning.pytorch import LightningDataModule
 
 from poregen.metrics import power_spectrum_criteria
 
 
 class PoreTrainer:
+    """
+    A trainer class for pore generation models that handles training, testing and sampling.
+
+    This class wraps a KarrasModule (diffusion model) and handles all aspects of training including
+    optimizer setup, checkpoint management, and Lightning training configuration.
+
+    Args:
+        models: Dictionary containing the main model and optional autoencoder
+        train_config: Training configuration dictionary
+        output_config: Output/logging configuration dictionary
+        data_config: Data configuration dictionary
+        load: Checkpoint loading specification ('best', 'latest', 'last' or path)
+        training: Whether to enable training mode
+        fast_dev_run: Whether to do a fast dev run
+        load_on_fit: Whether to load checkpoint at fit time
+
+    Attributes:
+        model: The main generative model
+        autoencoder: Optional autoencoder model
+        karras_module: The KarrasModule wrapping the model
+        trainer: Lightning trainer instance
+    """
+
     def __init__(self,
-                 models,
-                 train_config,
-                 output_config,
-                 data_config=None,
-                 load=None,
-                 training=True,
-                 fast_dev_run=False,
-                 load_on_fit=False):
+                 models: Dict[str, Any],
+                 train_config: Dict[str, Any],
+                 output_config: Dict[str, Any],
+                 data_config: Optional[Dict[str, Any]] = None,
+                 load: Optional[str] = None,
+                 training: bool = True,
+                 fast_dev_run: bool = False,
+                 load_on_fit: bool = False):
         self.model = models['model']
         self.autoencoder = models.get('autoencoder', None)
         self.train_config = train_config
@@ -51,7 +77,13 @@ class PoreTrainer:
             # Set up optimizer
             self.setup_optimizer()
 
-    def create_karras_config(self):
+    def create_karras_config(self) -> KarrasModuleConfig:
+        """
+        Creates a KarrasModuleConfig based on the training configuration.
+
+        Returns:
+            KarrasModuleConfig: Configuration for the KarrasModule
+        """
         karras_type = self.train_config.get('karras_type', 'edm')
         if karras_type == 'edm':
             return KarrasModuleConfig.from_edm(**self.train_config.get('karras_config', {}))
@@ -62,7 +94,16 @@ class PoreTrainer:
         else:
             raise ValueError(f"Unsupported Karras config type: {karras_type}")
 
-    def create_or_load_karras_module(self, karras_config):
+    def create_or_load_karras_module(self, karras_config: KarrasModuleConfig) -> KarrasModule:
+        """
+        Creates a new KarrasModule or loads from checkpoint.
+
+        Args:
+            karras_config: Configuration for the KarrasModule
+
+        Returns:
+            KarrasModule: New or loaded KarrasModule instance
+        """
         if self.load is None or self.load_on_fit:
             # Create a new KarrasModule
             return KarrasModule(
@@ -85,17 +126,23 @@ class PoreTrainer:
                 autoencoder_conditional=False
             )
 
-    def get_checkpoint_path(self):
+    def get_checkpoint_path(self) -> Optional[str]:
+        """
+        Gets the checkpoint path based on load specification.
+
+        Returns:
+            Optional[str]: Path to checkpoint file or None if no checkpoint should be loaded
+        """
         if self.load is None:
             return None
         elif self.load == "best":
             # Find the checkpoint with the lowest val_loss
             checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
+            print(checkpoint_dir)
             checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
             # Remove last.ckpt
             # checkpoints = [ckpt for ckpt in checkpoints if not ckpt.endswith('last.ckpt')]
             checkpoints = [ckpt for ckpt in checkpoints if "last" not in ckpt]
-            print(checkpoint_dir)
             if not checkpoints:
                 warnings.warn("No checkpoints found in the specified directory. Starting from scratch.")
                 return None
@@ -127,7 +174,8 @@ class PoreTrainer:
         else:
             raise ValueError(f"Invalid checkpoint specification: {self.load}")
 
-    def setup_optimizer(self):
+    def setup_optimizer(self) -> None:
+        """Sets up optimizer and learning rate scheduler for training."""
         # Create optimizer
         optimizer_config = self.train_config.get('optimizer', {})
         optimizer_type = optimizer_config.get('type', 'adam')
@@ -167,7 +215,8 @@ class PoreTrainer:
             scheduler = None
         self.karras_module.set_optimizer_and_scheduler(optimizer, scheduler)
 
-    def setup_lightning_trainer(self):
+    def setup_lightning_trainer(self) -> None:
+        """Sets up the Lightning trainer with callbacks and logger."""
         # Callbacks
         output_dir = self.output_config['folder']
         os.makedirs(output_dir, exist_ok=True)
@@ -203,7 +252,13 @@ class PoreTrainer:
             fast_dev_run=self.fast_dev_run
         )
 
-    def train(self, datamodule):
+    def train(self, datamodule: LightningDataModule) -> None:
+        """
+        Trains the model using the provided datamodule.
+
+        Args:
+            datamodule: Lightning datamodule containing training data
+        """
         if self.train:
             ckpt_path = self.checkpoint_path if self.load_on_fit else None
             self.trainer.fit(model=self.karras_module,
@@ -212,24 +267,58 @@ class PoreTrainer:
         else:
             print("Training is disabled. Use 'train=True' to enable training.")
 
-    def test(self, test_loader):
+    def test(self, test_loader: torch.utils.data.DataLoader) -> None:
+        """
+        Tests the model using the provided test loader.
+
+        Args:
+            test_loader: DataLoader containing test data
+        """
         self.trainer.test(self.karras_module, test_loader)
 
-    def predict(self, predict_loader):
+    def predict(self, predict_loader: torch.utils.data.DataLoader) -> Any:
+        """
+        Makes predictions using the provided loader.
+
+        Args:
+            predict_loader: DataLoader containing prediction data
+
+        Returns:
+            Model predictions
+        """
         return self.trainer.predict(self.karras_module, predict_loader)
 
     def sample(self,
-               nsamples,
-               shape=None,
-               y=None,
-               guidance=1.0,
-               nsteps=None,
-               record_history=False,
-               maximum_batch_size=None,
-               integrator=None,
-               binarize=True,
-               return_numpy=True,
-               filter_spectra=False):
+               nsamples: int,
+               shape: Optional[List[int]] = None,
+               y: Optional[torch.Tensor] = None,
+               guidance: float = 1.0,
+               nsteps: Optional[int] = None,
+               record_history: bool = False,
+               maximum_batch_size: Optional[int] = None,
+               integrator: Optional[str] = None,
+               binarize: bool = True,
+               return_numpy: bool = True,
+               filter_spectra: bool = False) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Generates samples from the model.
+
+        Args:
+            nsamples: Number of samples to generate
+            shape: Shape of each sample
+            y: Conditional information
+            guidance: Guidance scale for conditional generation
+            nsteps: Number of sampling steps
+            record_history: Whether to record sampling history
+            maximum_batch_size: Maximum batch size for sampling
+            integrator: Type of integrator to use
+            binarize: Whether to binarize samples
+            return_numpy: Whether to return samples as numpy array
+            filter_spectra: Whether to filter samples based on power spectrum
+
+        Returns:
+            Generated samples as tensor or numpy array
+        """
         self.karras_module.eval()
         if shape is None:
             shape = self.get_shape_from_data_config()
@@ -274,7 +363,16 @@ class PoreTrainer:
             samples = samples.detach().cpu().numpy()
         return samples
 
-    def get_shape_from_data_config(self):
+    def get_shape_from_data_config(self) -> List[int]:
+        """
+        Infers sample shape from data configuration.
+
+        Returns:
+            List of integers specifying sample shape
+
+        Raises:
+            ValueError: If data_config is None
+        """
         if self.data_config is None:
             raise ValueError("Data config is None. Cannot infer shape.")
         image_size = self.data_config.get('image_size')
@@ -288,7 +386,19 @@ class PoreTrainer:
         return shape
 
 
-def get_scheduler_cls(scheduler_type):
+def get_scheduler_cls(scheduler_type: str) -> Any:
+    """
+    Gets scheduler class from type string.
+
+    Args:
+        scheduler_type: Type of scheduler ('cosine', 'step')
+
+    Returns:
+        Scheduler class
+
+    Raises:
+        NotImplementedError: If scheduler type not supported
+    """
     # lower the string
     scheduler_type = scheduler_type.lower()
     if scheduler_type == 'cosine':
@@ -299,7 +409,19 @@ def get_scheduler_cls(scheduler_type):
         raise NotImplementedError
 
 
-def get_optimizer_cls(optimizer_type):
+def get_optimizer_cls(optimizer_type: str) -> Any:
+    """
+    Gets optimizer class from type string.
+
+    Args:
+        optimizer_type: Type of optimizer ('adam', 'sgd', 'adamw')
+
+    Returns:
+        Optimizer class
+
+    Raises:
+        NotImplementedError: If optimizer type not supported
+    """
     # lower the string
     optimizer_type = optimizer_type.lower()
     if optimizer_type == 'adam':
