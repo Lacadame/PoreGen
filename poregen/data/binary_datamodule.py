@@ -10,10 +10,15 @@ from poregen.features import feature_extractors
 
 
 class BinaryVoxelDataModule(L.LightningDataModule):
-    def __init__(self, data_path, cfg):
+    def __init__(self, data_path: str | Path | list[str | Path] = '',
+                 cfg: dict[str, Any] = {}):
         super().__init__()
-        self.data_path = data_path
         self.cfg = cfg
+        if data_path == '':
+            data_path = cfg.get('path', '')
+            if data_path == '':
+                raise ValueError("data_path or cfg.path must be provided")
+        self.data_path = data_path
         # The default here comes from eleven sandstones
         self.voxel_size_um = (self.cfg.get("voxel_size_um", 2.25) *
                               self.cfg.get("voxel_downscale_factor", 1))
