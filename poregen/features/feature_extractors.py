@@ -24,8 +24,12 @@ AVAILABLE_EXTRACTORS = [
     'permeability_from_pnm',
     'surface_area_density_from_slice',
     'surface_area_density_from_voxel',
-    'surface_area_densityfrom_voxel_slice',
-    'effective_porosity'
+    'surface_area_density_from_voxel_slice',
+    'effective_porosity',
+    'slice_from_voxel',
+    'xslice_from_voxel',
+    'yslice_from_voxel',
+    'zslice_from_voxel',
 ]
 
 EXTRACTORS_RETURN_KEYS_MAP = {
@@ -43,10 +47,15 @@ EXTRACTORS_RETURN_KEYS_MAP = {
                                'root_momenta', 'standardized_momenta'],
     'porosimetry_from_voxel_slice': ['psd_centers', 'psd_cdf', 'psd_pdf', 'log_momenta',
                                      'root_momenta', 'standardized_momenta'],
-    'permeability_from_pnm': ['permeability']
+    'permeability_from_pnm': ['permeability'],
+    'slice_from_voxel': ['slice'],
+    'xslice_from_voxel': ['slice'],
+    'yslice_from_voxel': ['slice'],
+    'zslice_from_voxel': ['slice'],
 }
 
 # Extractors
+
 
 def extract_two_point_correlation_base(data, bins: int = 32):
     data = data[0].float()
@@ -162,6 +171,34 @@ def extract_permeability_from_pnm(voxel,
     except Exception:  # Could not calculate permeability
         perm = np.nan*np.ones(len(voxel.shape) - 1)
     return {'permeability': torch.tensor(perm, dtype=torch.float)}
+
+
+def extract_xslice_from_voxel(voxel):
+    slice_ind = np.random.randint(0, voxel.shape[2])
+    slice = voxel[:, slice_ind, :, :]  # [1, H, W, Z] -> [1, H, W]
+    return {'slice': slice}
+
+
+def extract_yslice_from_voxel(voxel):
+    slice_ind = np.random.randint(0, voxel.shape[1])
+    slice = voxel[:, :, slice_ind, :]  # [1, H, W, Z] -> [1, H, Z]
+    return {'slice': slice}
+
+
+def extract_zslice_from_voxel(voxel):
+    slice_ind = np.random.randint(0, voxel.shape[0])
+    slice = voxel[:, :, :, slice_ind]  # [1, H, W, Z] -> [1, H, W]
+    return {'slice': slice}
+
+
+def extract_slice_from_voxel(voxel):
+    which_slice = np.random.randint(0, 3)
+    if which_slice == 0:
+        return extract_xslice_from_voxel(voxel)
+    elif which_slice == 1:
+        return extract_yslice_from_voxel(voxel)
+    else:
+        return extract_zslice_from_voxel(voxel)
 
 
 # Composite extractor

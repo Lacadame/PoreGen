@@ -10,3 +10,4 @@ from .power_spectrum import (calculate_3d_radial_spectrum,
                              cluster_spectra, predict_cluster_spectra,
                              save_cluster_model, load_cluster_model,
                              power_spectrum_criteria)
+from .memorization_metrics import nearest_neighbour

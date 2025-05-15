@@ -116,6 +116,8 @@ class PoreTrainer:
             )
         else:
             # Load from checkpoint
+            print(self.checkpoint_path, len(self.checkpoint_path))
+            print('--------------------------------')
             return KarrasModule.load_from_checkpoint(
                 self.checkpoint_path,
                 model=self.model,

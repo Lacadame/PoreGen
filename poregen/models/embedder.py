@@ -228,7 +228,7 @@ class PorosityEmbedder(torch.nn.Module):
             'dembed': self.dembed,
             'scale': self.scale
         }
-
+    
 
 class MomentaEmbedder(torch.nn.Module):
     def __init__(self,

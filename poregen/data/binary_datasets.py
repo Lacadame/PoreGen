@@ -138,6 +138,62 @@ class VoxelToSubvoxelDataset(BaseVoxelDataset):
         return crop
 
 
+class VoxelToSubvoxelSequentialDataset(BaseVoxelDataset):
+    """
+    Sequential, stride-controlled sub-voxel sampler.
+    Returns None if idx ≥ total number of admissible sub-voxels.
+    """
+    def __init__(self, stride: int = 1, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stride = stride
+
+        # ----- compute grid of starting coordinates ------------------------
+        self.starts_per_axis = [
+            list(range(0, dim - sub + 1, stride))
+            for dim, sub in zip(self.voxels[0].shape, self.subslice)
+        ]
+        self.per_voxel = np.prod([len(ax) for ax in self.starts_per_axis])
+        self.total_subvoxels = self.per_voxel * len(self.voxels)
+
+        # If caller didn’t override, cover the whole grid
+        if kwargs.get("dataset_size") is None:
+            self.dataset_size = self.total_subvoxels
+
+    def __getitem__(self, idx: int):
+        # -------- guard against out-of-range indices -----------------------
+        if idx >= self.total_subvoxels:
+            return None                         # <- early exit
+
+        # -------- decode which voxel and which coordinate ------------------
+        voxel_idx        = idx // self.per_voxel
+        within_voxel_idx = idx %  self.per_voxel
+        voxel            = self.voxels[voxel_idx]
+
+        nx = len(self.starts_per_axis[-1])      # x-axis
+        ny = len(self.starts_per_axis[-2])      # y-axis
+        nz = len(self.starts_per_axis[0])       # z-axis
+
+        z_lin = within_voxel_idx // (ny * nx)
+        rem   = within_voxel_idx %  (ny * nx)
+        y_lin = rem // nx
+        x_lin = rem %  nx
+
+        starts = (
+            self.starts_per_axis[0][z_lin],
+            self.starts_per_axis[1][y_lin],
+            self.starts_per_axis[2][x_lin],
+        )
+
+        # -------- crop, post-process, return -------------------------------
+        slices = tuple(slice(s, s + sub) for s, sub in zip(starts, self.subslice))
+        crop   = voxel[slices].unsqueeze(0)
+        crop   = self.process_crop(crop)
+
+        if self.feature_extractor is not None:
+            return crop, self.feature_extractor(crop)
+        return crop
+
+
 # Aliases for backward compatibility
 SequenceOfVoxelsToSlicesDataset = VoxelToSlicesDataset
 SequenceOfVoxelsToSubvoxelDataset = VoxelToSubvoxelDataset

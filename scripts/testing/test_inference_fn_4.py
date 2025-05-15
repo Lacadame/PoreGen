@@ -6,7 +6,7 @@ import poregen.trainers
 
 def main():
 
-    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20250108-bps-ldm-ketton256-p_cond-aws.yaml"
+    cfgpath = "/home/danilo/repos/PoreGen/configs/bps/20250108-bps-ldm-bentheimer256-p_cond-aws.yaml"
 
     nsamples = 100
     # controlled
@@ -15,7 +15,7 @@ def main():
         'best',
         nsamples=nsamples,
         maximum_batch_size=1,
-        device_id=6,
+        device_id=5,
         tag='guided-train',
         guided=True,
         y='train')

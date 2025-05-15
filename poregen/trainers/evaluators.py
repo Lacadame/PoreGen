@@ -15,16 +15,19 @@ import poregen.features
 import poregen.models
 
 
+
 KwargsType = dict[str, Any]
 ConditionType = str | dict[str, torch.Tensor] | torch.Tensor
 
 
-def pore_eval_cached(cfg_path,  # noqa: C901
+def pore_eval_cached(cfg_path: str | pathlib.Path,  # noqa: C901
                      stats_folder_path: str | pathlib.Path,
                      extractors: str | list[str] = '3d',
                      extractor_kwargs: dict[str, KwargsType] = {},
                      device_id: int = 0,
-                     which_stats: str = "both"):
+                     which_stats: str = "both",
+                     default_voxel_size: float = 1.0,
+                     max_samples: int = None):
     """Load cached samples and recalculate only missing properties.
 
     Args:
@@ -41,8 +44,8 @@ def pore_eval_cached(cfg_path,  # noqa: C901
             cfg = yaml.safe_load(f)
         voxel_size_um = cfg['data']['voxel_size_um']
     except Exception:
-        warnings.warn("No voxel size found, using 1.0 um")
-        voxel_size_um = 1.0
+        warnings.warn("No voxel size found, using default voxel size")
+        voxel_size_um = default_voxel_size
 
     stats_folder, generated_folder, valid_folder = _validate_and_get_cached_folders(
         stats_folder_path, which_stats
@@ -51,7 +54,7 @@ def pore_eval_cached(cfg_path,  # noqa: C901
     existing_generated_stats, existing_valid_stats = _load_existing_stats(stats_folder)
     # Load samples
 
-    generated_samples, valid_samples = _load_cached_samples(generated_folder, valid_folder, which_stats)
+    generated_samples, valid_samples = _load_cached_samples(generated_folder, valid_folder, which_stats, max_samples)
 
     # Setup extractors
 
@@ -226,7 +229,7 @@ def _load_existing_stats(stats_folder):
     return existing_generated_stats, existing_valid_stats
 
 
-def _load_cached_samples(generated_folder, valid_folder, which_stats):
+def _load_cached_samples(generated_folder, valid_folder, which_stats, max_samples):
     generated_samples = []
     valid_samples = []
 
@@ -247,6 +250,10 @@ def _load_cached_samples(generated_folder, valid_folder, which_stats):
         for file in valid_files:
             valid_samples.append(np.load(file))
         valid_samples = np.stack(valid_samples)
+
+    if max_samples is not None:
+        generated_samples = generated_samples[:max_samples]
+        valid_samples = valid_samples[:max_samples]
 
     return generated_samples, valid_samples
 
@@ -488,12 +495,19 @@ def _save_results(generated_samples, valid_samples, generated_stats_all, valid_s
 
     # Save generated stats
     generated_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(generated_stats_all)}
+
+    # print(x_cond)
     if x_cond is not None:
         if not guided:          # TODO: figure out how to save the conditions for guided
             y = _convert_condition_to_dict(y)
             generated_stats_dict['condition'] = y
         else:
-            y = _convert_condition_to_dict(y)
+            if isinstance(y, tuple) or isinstance(y, list):
+                y = list(y)
+                for i in range(len(y)):
+                    y[i] = _convert_condition_to_dict(y[i])
+            else:
+                raise NotImplementedError("I do not know what to do in this case")
             generated_stats_dict['condition'] = y
 
     with open(stats_folder / "generated_stats.json", "w") as f:
@@ -525,6 +539,7 @@ def _convert_condition_to_dict(y):
         _convert_dict_items_to_numpy(y_copy)
         return y_copy
     else:
+        print(y, 'CONDITION')
         y_copy = np.array(y).astype(np.float32)
         return y_copy
 
@@ -666,3 +681,44 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
+
+
+def test_memorization(cfg_path,  # noqa: C901
+                      stats_folder_path: str | pathlib.Path,
+                      maximum_batch_size: int = 1,
+                      mode: None | str = 'nearest-pixel',
+                      checkpoint_path: str | pathlib.Path = None,
+                      image_size: int | None = None,
+                      stride: int = 1):
+    # TODO: review this function
+    loaded = poregen.trainers.pore_load(cfg_path,
+                                        checkpoint_path,
+                                        load_data=True,
+                                        image_size=image_size)
+
+    stats_folder = pathlib.Path(stats_folder_path)
+    generated_folder = stats_folder / "generated_samples"
+    valid_folder = stats_folder / "valid_samples"
+
+    generated_samples, valid_samples = _load_cached_samples(generated_folder, valid_folder, which_stats, max_samples)
+
+    print(valid_samples.shape, 'VALID SHAPE')
+    print(generated_samples.shape, 'GENERATED SHAPE')
+
+    if mode == 'nearest-pixel':
+        metric = poregen.metrics.memorization_metrics.nearest_neighbour
+        vae_model = None
+    elif mode == 'nearest-latent':
+        metric = poregen.metrics.memorization_metrics.nearest_neighbour
+        vae_model = loaded['trainer'].vae_module
+    else:
+        raise NotImplementedError("Choose either 'nearest-pixel' or 'nearest-latent'.")
+
+    target_dataset = poregen.data.VoxelToSubvoxelSequentialDataset(stride=stride)
+
+    nearest = metric(generated_samples,
+                     target_dataset,
+                     vae_model=vae_model)
+
+    # save nearest stats
+    torch.save(nearest, stats_folder/f"nearest-{mode}.pt")
