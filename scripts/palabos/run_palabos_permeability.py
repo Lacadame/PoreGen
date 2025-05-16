@@ -1,5 +1,6 @@
 import pathlib
 import os
+import time
 
 import click
 import porespy
@@ -21,7 +22,9 @@ import poregen.data
               help='Pressure drop for permeability calculation')
 @click.option('--np_val', type=int, default=48,
               help='Number of processors')
-def run_palabos_permeability(datapath, outdir, scriptpath, palabos_env, deltap, np_val):
+@click.option('--use-cached', type=bool, default=True,
+              help='Use cached permeability results')
+def run_palabos_permeability(datapath, outdir, scriptpath, palabos_env, deltap, np_val, use_cached):
     """
     Run Palabos permeability calculation.
     """
@@ -41,14 +44,24 @@ def run_palabos_permeability(datapath, outdir, scriptpath, palabos_env, deltap, 
     porespy.io.to_palabos(rock.transpose(2, 0, 1) // 255, palabos_fname, solid=1)   # writes ASCII grid
 
     output_file = outdir / 'output'
+    if use_cached:
+        print(f"Checking for cached permeability results in {output_file}")
+        if output_file.exists():
+            print(f"Using cached permeability results from {output_file}")
+            return
+
     run_command = (
         f"bash -c 'source $(conda info --base)/etc/profile.d/conda.sh && "
         f"conda activate {palabos_env} && "
-        f"mpirun -np {np_val} {scriptpath} {palabos_fname} {outdir}/ "
-        f"{xshape} {yshape} {zshape} {deltap} > {output_file}'"
+        f"time mpirun -np {np_val} {scriptpath} {palabos_fname} {outdir}/ "
+        f"{xshape} {yshape} {zshape} {deltap} > {output_file} 2>&1'"
     )
+    print(f"Running command: {run_command}")
+    start_time = time.time()
     os.system(run_command)
-    print(f"Permeability calculation completed. Results saved to {output_file}")
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Permeability calculation completed in {elapsed_time:.2f} seconds. Results saved to {output_file}")
 
 
 if __name__ == '__main__':
