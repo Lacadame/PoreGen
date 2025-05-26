@@ -355,13 +355,16 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
                 labels.append('Permeability')
                 units.append(r"$\text{Darcy}$")
 
+        print("Plotting histograms")
         figs1 = plot_histograms(generated_data_dict, valid_data, properties, labels, units, nbins, max_value_dict=max_value_dict, layout_params=LAYOUT_PARAMS)
+        print("Plotting KDEs")
         figs1_kde, divergences = plot_kde(generated_data_dict, valid_data, properties, labels, units, max_value_dict=max_value_dict, layout_params=LAYOUT_PARAMS)
-
+        print("Plotting boxplots")
         fig2 = plot_boxplots(generated_data_dict, valid_data, properties, labels, units, layout_params=LAYOUT_PARAMS)
-        # TPC and PSD related code
+        print("Plotting TPC")
         fig3, tpc_divergences = plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, voxel_size_um, layout_params=LAYOUT_PARAMS)
         divergences['tpc_divergences'] = tpc_divergences
+        print("Plotting PSD")
         if show_psd:
             fig4, psd_divergences = plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um)
             divergences['pore_size_distribution'] = psd_divergences
