@@ -14,7 +14,7 @@ import poregen.data
 @click.option('--outdir', type=click.Path(exists=False), required=True,
               help='Path to the output directory')
 @click.option('--scriptpath', type=click.Path(exists=True),
-              default=os.path.join(os.path.expanduser('~'), 'local/palabos/examples/tutorial/permeability/permeability'),
+              default=os.path.join(os.path.expanduser('~'), 'repos/palabos/examples/tutorial/permeability/permeability'),
               help='Path to the Palabos script')
 @click.option('--palabos_env', type=str, default='palabos_env',
               help='Name of the Palabos environment')
@@ -34,14 +34,17 @@ def run_palabos_permeability(datapath, outdir, scriptpath, palabos_env, deltap, 
         rock = poregen.data.load_binary_from_eleven_sandstones(
             datapath
         )
+        normalizer = 255
     else:
         rock = np.load(datapath).astype(int)[0]
+        normalizer = 1
 
     xshape, yshape, zshape = rock.shape
 
     os.makedirs(outdir, exist_ok=True)
     palabos_fname = outdir / 'rock.dat'
-    porespy.io.to_palabos(rock.transpose(2, 0, 1) // 255, palabos_fname, solid=1)   # writes ASCII grid
+    print("Checking normalizer", normalizer, rock.mean())
+    porespy.io.to_palabos(rock.transpose(2, 0, 1) // normalizer, palabos_fname, solid=1)   # writes ASCII grid
 
     output_file = outdir / 'output'
     if use_cached:

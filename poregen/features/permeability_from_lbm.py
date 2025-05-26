@@ -340,6 +340,8 @@ def permeability_from_lbm(subsample,
         permeability: Calculated permeability value
         u_field: Velocity field after simulation (if savepath is not None)
     """
+    
+    torch.cuda.empty_cache()
     if not _LETTUCE_IMPORTED:
         raise ImportError("Lettuce is not installed. Please install it using 'pip install lettuce'.")
 
@@ -429,4 +431,5 @@ def permeability_from_lbm(subsample,
 
         print(f"Saved velocity (lattice units) to {save_dir}")
 
+    torch.cuda.empty_cache()
     return {'bulk': calculated_permeability_bulk, 'surface': calculated_permeability_surface}

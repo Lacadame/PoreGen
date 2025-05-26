@@ -4,10 +4,12 @@ import functools
 import numpy as np
 import porespy
 import torch
+import skimage.measure
 
 from . import porosimetry
 from . import permeability
 from . import surface_area
+from . import curvature
 
 
 KwargsType = dict[str, Any]
@@ -30,14 +32,15 @@ AVAILABLE_EXTRACTORS = [
     'xslice_from_voxel',
     'yslice_from_voxel',
     'zslice_from_voxel',
+    'euler_number_density',
 ]
 
 EXTRACTORS_RETURN_KEYS_MAP = {
     'porosity': ['porosity'],
     'effective_porosity': ['effective_porosity'],
-    'surface_area_density_from_slice': ['surface_area_density'],
-    'surface_area_density_from_voxel': ['surface_area_density'],
-    'surface_area_density_from_voxel_slice': ['surface_area_density'],
+    'surface_area_density_from_slice': ['surface_area_density', 'mean_curvature'],
+    'surface_area_density_from_voxel': ['surface_area_density', 'mean_curvature'],
+    'surface_area_density_from_voxel_slice': ['surface_area_density', 'mean_curvature'],
     'two_point_correlation_from_slice': ['tpc_dist', 'tpc_prob'],
     'two_point_correlation_from_voxel': ['tpc_dist', 'tpc_prob'],
     'two_point_correlation_from_voxel_slice': ['tpc_dist', 'tpc_prob'],
@@ -52,6 +55,7 @@ EXTRACTORS_RETURN_KEYS_MAP = {
     'xslice_from_voxel': ['slice'],
     'yslice_from_voxel': ['slice'],
     'zslice_from_voxel': ['slice'],
+    'euler_number_density': ['euler_number_density']
 }
 
 # Extractors
@@ -78,6 +82,16 @@ def extract_two_point_correlation_from_voxel(voxel, bins: int = 32):
 
 def extract_two_point_correlation_from_slice(slice, bins: int = 32):
     return extract_two_point_correlation_base(slice, bins)
+
+
+def extract_euler_number_density(voxel, voxel_size: float = 1.0):
+    voxel = voxel[0].numpy().astype(bool)
+    processed_voxel = porespy.filters.fill_blind_pores(voxel, conn=6)
+    processed_voxel = ~porespy.filters.fill_blind_pores(~processed_voxel, conn=6)
+    euler_number = skimage.measure.euler_number(1 - voxel, connectivity=3)
+    voxel_volume = np.prod(voxel.shape)*voxel_size**3
+    euler_number_density = euler_number/voxel_volume
+    return {'euler_number_density': torch.tensor(euler_number_density, dtype=torch.float)}
 
 
 def extract_porosimetry_base(data,
@@ -136,7 +150,16 @@ def extract_porosimetry_from_voxel_slice(voxel,
 def extract_surface_area_density_base(data, voxel_size: float = 1.0):
     data = (1 - data[0].long()).numpy()
     sa = surface_area.surface_area_density(data, voxel_size)
-    return {'surface_area_density': torch.tensor(sa, dtype=torch.float)}
+    sa = torch.tensor(sa, dtype=torch.float)
+    if len(data.shape) == 3:
+        mean_curvature_integral = curvature.compute_mean_curvature_integral(data)
+        mean_curvature_integral = mean_curvature_integral * voxel_size
+        sa_int = sa * data.shape[0] * data.shape[1] * data.shape[2] * voxel_size**2
+        mean_curvature = torch.tensor(mean_curvature_integral, dtype=torch.float) / sa_int
+    else:
+        mean_curvature = torch.tensor(np.nan, dtype=torch.float)
+    return {'surface_area_density': sa,
+            'mean_curvature': mean_curvature}
 
 
 def extract_surface_area_density_from_slice(slice, voxel_size: float = 1.0):

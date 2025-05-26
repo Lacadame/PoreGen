@@ -27,7 +27,9 @@ def pore_eval_cached(cfg_path: str | pathlib.Path,  # noqa: C901
                      device_id: int = 0,
                      which_stats: str = "both",
                      default_voxel_size: float = 1.0,
-                     max_samples: int = None):
+                     max_samples: int = None,
+                     force_recalculation: list[str] = [],
+                     binarize: bool = False):
     """Load cached samples and recalculate only missing properties.
 
     Args:
@@ -58,6 +60,11 @@ def pore_eval_cached(cfg_path: str | pathlib.Path,  # noqa: C901
 
     # Setup extractors
 
+    if binarize:
+        # Get all dimensions except the first one (batch dimension)
+        spatial_dims = list(range(1, generated_samples.dim()))
+        generated_samples = generated_samples > generated_samples.mean(dim=spatial_dims, keepdim=True)
+
     extractors, extractor_kwargs = _get_extractors(extractors, voxel_size_um, extractor_kwargs)
 
     needed_extractors = _determine_needed_extractors(
@@ -65,8 +72,15 @@ def pore_eval_cached(cfg_path: str | pathlib.Path,  # noqa: C901
         valid_samples, existing_generated_stats,
         existing_valid_stats
     )
+    
+    # Add force_recalculation extractors to needed_extractors
+    if force_recalculation:
+        # Ensure force_recalculation items are valid extractors
+        valid_force_recalc = [ext for ext in force_recalculation if ext in extractors]
+        
+        # Add to needed_extractors without duplicates (set union)
+        needed_extractors = list(set(needed_extractors) | set(valid_force_recalc))
 
-    print("NEEDED EXTRACTORS", needed_extractors)
     if needed_extractors:
         needed_extractor_kwargs = {k: extractor_kwargs.get(k, {}) for k in needed_extractors}
 
@@ -149,9 +163,6 @@ def pore_eval(cfg_path,  # noqa: C901
 
     valid_samples = _get_validation_samples(loaded, nsamples_valid)
 
-    print(valid_samples.shape, 'VALID SHAPE')
-    print(generated_samples.shape, 'GENERATED SHAPE')
-
     extractor = _setup_extractor(extractors, voxel_size_um, extractor_kwargs)
 
     generated_stats_all, valid_stats_all, cond_stats, cond_stats_all = _calculate_statistics(
@@ -204,9 +215,11 @@ def _validate_and_get_cached_folders(stats_folder_path, which_stats):
     if which_stats not in ["both", "generated", "valid"]:
         raise ValueError("which_stats must be one of: 'both', 'generated', 'valid'")
 
-    # Check if folders exist
-    if not generated_folder.exists() or not valid_folder.exists():
-        raise FileNotFoundError("Sample folders not found. Run pore_eval first.")
+    # Check if folders exist based on which stats are requested
+    if which_stats in ["both", "generated"] and not generated_folder.exists():
+        raise FileNotFoundError("Generated samples folder not found. Run pore_eval first.")
+    if which_stats in ["both", "valid"] and not valid_folder.exists():
+        raise FileNotFoundError("Valid samples folder not found. Run pore_eval first.")
 
     return stats_folder, generated_folder, valid_folder
 
@@ -427,7 +440,8 @@ def _get_extractors(extractors, voxel_size_um, extractor_kwargs):
                           'permeability_from_pnm',
                           'porosity',
                           'effective_porosity',
-                          'surface_area_density_from_voxel']
+                          'surface_area_density_from_voxel',
+                          'euler_number_density']
         elif extractors == '2d':
             extractors = ['porosimetry_from_slice',
                           'two_point_correlation_from_slice',
@@ -685,14 +699,15 @@ class NumpyEncoder(json.JSONEncoder):
 
 def test_memorization(cfg_path,  # noqa: C901
                       stats_folder_path: str | pathlib.Path,
-                      maximum_batch_size: int = 1,
-                      mode: None | str = 'nearest-pixel',
-                      checkpoint_path: str | pathlib.Path = None,
                       image_size: int | None = None,
-                      stride: int = 1):
-    # TODO: review this function
+                      latent: bool = False,
+                      mode: str = 'nearest',
+                      stride: int = 1,
+                      max_samples: int | None = None,
+                      batch_size: int = 1):
+
     loaded = poregen.trainers.pore_load(cfg_path,
-                                        checkpoint_path,
+                                        checkpoint_path=None,
                                         load_data=True,
                                         image_size=image_size)
 
@@ -700,25 +715,34 @@ def test_memorization(cfg_path,  # noqa: C901
     generated_folder = stats_folder / "generated_samples"
     valid_folder = stats_folder / "valid_samples"
 
-    generated_samples, valid_samples = _load_cached_samples(generated_folder, valid_folder, which_stats, max_samples)
+    generated_samples, valid_samples = _load_cached_samples(generated_folder, valid_folder,
+                                                            which_stats="both",
+                                                            max_samples=None)
 
     print(valid_samples.shape, 'VALID SHAPE')
     print(generated_samples.shape, 'GENERATED SHAPE')
 
-    if mode == 'nearest-pixel':
+    if mode == 'nearest':
         metric = poregen.metrics.memorization_metrics.nearest_neighbour
-        vae_model = None
-    elif mode == 'nearest-latent':
-        metric = poregen.metrics.memorization_metrics.nearest_neighbour
+    else:
+        raise ValueError("Unknown memorization mode")
+    if latent:
         vae_model = loaded['trainer'].vae_module
     else:
-        raise NotImplementedError("Choose either 'nearest-pixel' or 'nearest-latent'.")
+        vae_model = None
 
-    target_dataset = poregen.data.VoxelToSubvoxelSequentialDataset(stride=stride)
+    with open(cfg_path, 'r') as f:
+        cfg = yaml.safe_load(f)
+    data_path = cfg['data']['path']
+    datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'], stride=stride)
+    datamodule.setup()
+    target_dataset = datamodule.train_dataset
 
     nearest = metric(generated_samples,
                      target_dataset,
-                     vae_model=vae_model)
+                     vae_model=vae_model,
+                     max_samples=max_samples,
+                     batch_size=batch_size)
 
     # save nearest stats
-    torch.save(nearest, stats_folder/f"nearest-{mode}.pt")
+    torch.save(nearest, stats_folder/f"memorization-{mode}-stride={stride}.pt")

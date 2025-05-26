@@ -24,7 +24,7 @@ LAYOUT_PARAMS = {
 # Default rcParams for plots
 DEFAULT_RC_PARAMS = {
     'font.size': 12,
-    'axes.titlesize': 14, 
+    'axes.titlesize': 14,
     'axes.labelsize': 12,
     'xtick.labelsize': 10,
     'ytick.labelsize': 10,
@@ -65,7 +65,8 @@ def plot_unconditional_metrics(datapath,
                                convert_nan_to_zero=False,
                                which_porosity='raw',
                                max_value_dict=None,
-                               rcParams_dict=None):
+                               rcParams_dict=None,
+                               has_new_properties=False):
     generated_datapaths = {'Generated': datapath}
     validation_datapath = datapath
     savepath = None
@@ -84,7 +85,8 @@ def plot_unconditional_metrics(datapath,
                                      convert_nan_to_zero,
                                      which_porosity,
                                      max_value_dict,
-                                     rcParams_dict)
+                                     rcParams_dict,
+                                     has_new_properties)
 
 
 def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
@@ -102,7 +104,8 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
                                      convert_nan_to_zero=False,
                                      which_porosity='raw',
                                      max_value_dict=None,
-                                     rcParams_dict=None):
+                                     rcParams_dict=None,
+                                     has_new_properties=False):
     # Apply rcParams for this function scope
     with plt.rc_context(rc=_get_rc_params(rcParams_dict)):
         # voxel_size in um
@@ -165,6 +168,27 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
             for name, stats in generated_stats_dict.items()
         }
         valid_surface_area_densities, _ = extract_property(valid_stats, 'surface_area_density')
+
+        if has_new_properties:
+            generated_mean_curvature_dict = {
+                name: extract_property(stats, 'mean_curvature')[0]
+                for name, stats in generated_stats_dict.items()
+            }
+            valid_mean_curvature, _ = extract_property(valid_stats, 'mean_curvature')
+
+            generated_euler_number_densities_dict = {
+                name: extract_property(stats, 'euler_number_density')[0]
+                for name, stats in generated_stats_dict.items()
+            }
+            valid_euler_number_densities, _ = extract_property(valid_stats, 'euler_number_density')
+            has_new_properties = True
+        else:
+            has_new_properties = False
+            generated_mean_curvature_dict = {}
+            valid_mean_curvature = None
+            generated_euler_number_densities_dict = {}
+            valid_euler_number_densities = None
+
         generated_log_momenta_dict = {
             name: extract_property(stats, 'log_momenta')[0]
             for name, stats in generated_stats_dict.items()
@@ -182,17 +206,19 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
             generated_log_permeabilities_dict = {}
             for name, permeabilities in generated_permeabilities_dict.items():
                 permeabilities = permeabilities[ind_dict[name]]
-                log_permeabilities = np.log10(np.prod(permeabilities, axis=1)**(1/3))
-                log_permeabilities[~np.isfinite(log_permeabilities)] = 0
+                # log_permeabilities = np.log10(np.prod(permeabilities, axis=1)**(1/3))
+                log_permeabilities = np.log10(permeabilities[:, 2])  # z-direction
+                log_permeabilities[~np.isfinite(log_permeabilities)] = -np.inf
                 generated_log_permeabilities_dict[name] = log_permeabilities
 
-            valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
-            valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = 0
+            # valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
+            valid_log_permeabilities = np.log10(valid_permeabilities[:, 2])  # z-direction
+            valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = -np.inf
 
             if convert_nan_to_zero:
                 for name in generated_log_permeabilities_dict:
-                    generated_log_permeabilities_dict[name][~np.isfinite(generated_log_permeabilities_dict[name])] = 0
-                valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = 0
+                    generated_log_permeabilities_dict[name][~np.isfinite(generated_log_permeabilities_dict[name])] = -np.inf
+                valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = -np.inf
             else:
                 for name in generated_log_permeabilities_dict:
                     generated_log_permeabilities_dict[name] = generated_log_permeabilities_dict[name][
@@ -214,14 +240,29 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
 
         generated_surface_area_densities_dict = {name: densities[ind_dict[name]]
                                                  for name, densities in generated_surface_area_densities_dict.items()}
+        if has_new_properties:
+            generated_mean_curvature_dict = {name: curvatures[ind_dict[name]]
+                                             for name, curvatures in generated_mean_curvature_dict.items()}
+            generated_euler_number_densities_dict = {name: densities[ind_dict[name]]
+                                                     for name, densities in generated_euler_number_densities_dict.items()}
         generated_log_momenta_dict = {name: momenta[ind_dict[name]]
-                                       for name, momenta in generated_log_momenta_dict.items()}
+                                      for name, momenta in generated_log_momenta_dict.items()}
 
         # Unit conversion
         # Permeability is already in Darcy
         for name in generated_surface_area_densities_dict:
             generated_surface_area_densities_dict[name] = generated_surface_area_densities_dict[name] / voxel_size_um  # (1/um)
         valid_surface_area_densities = valid_surface_area_densities / voxel_size_um  # (1/um)
+        print(has_new_properties)
+        if has_new_properties:
+            for name in generated_mean_curvature_dict:
+                generated_mean_curvature_dict[name] = generated_mean_curvature_dict[name] / voxel_size_um  # (1/um)
+            for name in generated_euler_number_densities_dict:
+                print(name, generated_euler_number_densities_dict[name])
+                generated_euler_number_densities_dict[name] = generated_euler_number_densities_dict[name] / voxel_size_um**3  # (1/um^3)
+            valid_mean_curvature = valid_mean_curvature / voxel_size_um  # (1/um)
+            print(valid_euler_number_densities)
+            valid_euler_number_densities = valid_euler_number_densities / voxel_size_um**3  # (1/um^3)
 
         log_momenta_conversion = np.log(np.array([voxel_size_um**(i+1)
                                                 for i in range(next(iter(generated_log_momenta_dict.values())).shape[1])]))
@@ -246,8 +287,8 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
         # Initialize data lists based on which_porosity
         if which_porosity == 'effective':
             generated_data_dict = {name: [generated_effective_porosities_dict[name],
-                                        generated_surface_area_densities_dict[name],
-                                        generated_log_mean_pore_size_dict[name]]
+                                          generated_surface_area_densities_dict[name],
+                                          generated_log_mean_pore_size_dict[name]]
                                  for name in generated_datapaths}
             valid_data = [valid_effective_porosities,
                          valid_surface_area_densities,
@@ -279,7 +320,6 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
             properties = ['porosity', 'effective_porosity', 'surface_area_density']
             labels = ['Porosity', 'Effective Porosity', 'Surface Area Density']
             units = [r"$\phi$", r"$\phi$", r"$1/\mu m$"]
-
         if use_log_properties:
             properties.append('log_mean_pore_size')
             labels.append('Log10 Mean Pore Size')
@@ -288,6 +328,19 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
             properties.append('mean_pore_size')
             labels.append('Mean Pore Size')
             units.append(r"$\mu m$")
+        if has_new_properties:
+            for name in generated_data_dict:
+                generated_data_dict[name].append(generated_mean_curvature_dict[name])
+            valid_data.append(valid_mean_curvature)
+            properties.append('mean_curvature')
+            labels.append('Mean Curvature')
+            units.append(r"$\mu m^{-1}$")
+            for name in generated_data_dict:
+                generated_data_dict[name].append(generated_euler_number_densities_dict[name])
+            valid_data.append(valid_euler_number_densities)
+            properties.append('euler_number_density')
+            labels.append('Euler Number Density')
+            units.append(r"$\mu m^{-3}$")
 
         if show_permeability:
             for name in generated_data_dict:
@@ -680,6 +733,11 @@ def extract_property(data, property_name):
             continue
         if isinstance(v, dict) and property_name in v:
             value = np.array(v[property_name])
+            # Hack: If value is a single number, convert to list for consistency
+            try:
+                len(value)
+            except TypeError:
+                value = np.array([value])
             # Hack to check if the value is empty,
             # or if there is any non-finite value
             check = np.all(np.isfinite(value)) and len(value) > 0
@@ -701,7 +759,7 @@ def extract_property(data, property_name):
     return property_list, input_list
 
 
-def plot_boxplots(generated_data_dict, valid_data, properties, labels, units, 
+def plot_boxplots(generated_data_dict, valid_data, properties, labels, units,
                  contour=False, layout_params=None, rcParams_dict=None):
     # Apply rcParams for this function scope
     with plt.rc_context(rc=_get_rc_params(rcParams_dict)):
@@ -713,10 +771,10 @@ def plot_boxplots(generated_data_dict, valid_data, properties, labels, units,
             'x_label_pad': 10,
             'y_label_pad': 10,
             'legend_bbox_to_anchor': (0.98, 0.98),
-            'plot_margins': {'left': 0.15, 'right': 0.95, 
+            'plot_margins': {'left': 0.15, 'right': 0.95,
                              'top': 0.92, 'bottom': 0.15}
         }
-        
+
         # Update with any user-provided parameters
         if layout_params is not None:
             default_layout.update(layout_params)
@@ -761,10 +819,10 @@ def plot_boxplots(generated_data_dict, valid_data, properties, labels, units,
             # Set labels and title with consistent padding
             ax.set_ylabel(unit, labelpad=default_layout['y_label_pad'])
             ax.set_title(label, pad=default_layout['title_pad'])
-            
+
             # Adjust subplot parameters for consistent margins
             plt.subplots_adjust(**default_layout['plot_margins'])
-            
+
             figs.append(fig)
 
         return figs
@@ -801,10 +859,10 @@ def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, vox
         'x_label_pad': 10,
         'y_label_pad': 10,
         'legend_bbox_to_anchor': (0.98, 0.98),
-        'plot_margins': {'left': 0.15, 'right': 0.95, 
+        'plot_margins': {'left': 0.15, 'right': 0.95,
                         'top': 0.92, 'bottom': 0.15}
     }
-    
+
     # Update with any user-provided parameters
     if layout_params is not None:
         default_layout.update(layout_params)
@@ -829,7 +887,7 @@ def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, vox
     ax.plot(x_valid, mean_valid_tpc_prob+2*std_valid_tpc_prob,
             color=VALIDATION_PLOT_COLOR, linestyle='--', linewidth=linewidth, alpha=0.3)
 
-    ax.plot(x_valid, mean_valid_tpc_prob, color=VALIDATION_PLOT_COLOR, 
+    ax.plot(x_valid, mean_valid_tpc_prob, color=VALIDATION_PLOT_COLOR,
             label='Validation', linewidth=2)
 
     # Initialize divergences dictionary
@@ -850,13 +908,13 @@ def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, vox
         x_generated = generated_tpc_dist.mean(axis=0)
 
         # Calculate divergences
-        kl_div = np.mean([hellinger_distance_kde_mc(generated_tpc_prob[:, i], 
+        kl_div = np.mean([hellinger_distance_kde_mc(generated_tpc_prob[:, i],
                                                    valid_tpc_prob[:, i])
                          for i in range(generated_tpc_prob.shape[1])])
-        hellinger_dist = np.mean([hellinger_distance_kde_mc(generated_tpc_prob[:, i], 
+        hellinger_dist = np.mean([hellinger_distance_kde_mc(generated_tpc_prob[:, i],
                                                           valid_tpc_prob[:, i])
                                 for i in range(generated_tpc_prob.shape[1])])
-        rel_error = np.mean(np.abs(mean_generated_tpc_prob - mean_valid_tpc_prob) / 
+        rel_error = np.mean(np.abs(mean_generated_tpc_prob - mean_valid_tpc_prob) /
                           mean_valid_tpc_prob)
 
         divergences[name] = {
@@ -868,22 +926,21 @@ def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, vox
         # Plot generated data
         y1 = mean_generated_tpc_prob-2*std_generated_tpc_prob
         y2 = mean_generated_tpc_prob+2*std_generated_tpc_prob
-        print(y1, y2)
         ax.fill_between(x_generated,
                        y1=y1,
                        y2=y2,
                        alpha=0.2,
                        color=GENERATED_PLOT_COLORS[i])
-        ax.plot(x_generated, mean_generated_tpc_prob, label=name, 
+        ax.plot(x_generated, mean_generated_tpc_prob, label=name,
                 color=GENERATED_PLOT_COLORS[i])
 
     ax.set_xlabel(r"$r$ $(\mu m)$", labelpad=default_layout['x_label_pad'])
     ax.set_ylabel(r"$s_2$", labelpad=default_layout['y_label_pad'])
     ax.set_ylim(bottom=0.0)
-    # ax.legend(loc=default_layout['legend_loc'], 
+    # ax.legend(loc=default_layout['legend_loc'],
     #          bbox_to_anchor=default_layout['legend_bbox_to_anchor'])
     ax.set_title("Two-point correlation", pad=default_layout['title_pad'])
-    
+
     plt.subplots_adjust(**default_layout['plot_margins'])
 
     return fig, divergences
@@ -909,10 +966,10 @@ def plot_histograms(generated_data_dict,
             'x_label_pad': 10,
             'y_label_pad': 10,
             'legend_bbox_to_anchor': (0.98, 0.98),
-            'plot_margins': {'left': 0.15, 'right': 0.95, 
+            'plot_margins': {'left': 0.15, 'right': 0.95,
                             'top': 0.92, 'bottom': 0.15}
         }
-        
+
         # Update with any user-provided parameters
         if layout_params is not None:
             default_layout.update(layout_params)
@@ -920,7 +977,7 @@ def plot_histograms(generated_data_dict,
         figs = []
         if max_value_dict is None:
             max_value_dict = {}
-        
+
         for i, (val, prop, label, unit) in enumerate(zip(valid_data, properties, labels, units)):
             fig, ax = plt.subplots(1, 1, figsize=default_layout['figsize'])
 
@@ -941,7 +998,7 @@ def plot_histograms(generated_data_dict,
             bins = np.linspace(min_value, max_value, nbins)
 
             # Plot validation histogram
-            ax.hist(val.flatten(), bins=bins, density=True, histtype='step', 
+            ax.hist(val.flatten(), bins=bins, density=True, histtype='step',
                     color=VALIDATION_PLOT_COUNTOUR_COLOR, label='Validation')
 
             # Plot generated histograms
@@ -958,9 +1015,9 @@ def plot_histograms(generated_data_dict,
             ax.set_ylabel("Density", labelpad=default_layout['y_label_pad'])
             ax.set_title(label, pad=default_layout['title_pad'])
             if label == 'Porosity':
-                ax.legend(loc=default_layout['legend_loc'], 
+                ax.legend(loc=default_layout['legend_loc'],
                         bbox_to_anchor=default_layout['legend_bbox_to_anchor'])
-            
+
             plt.subplots_adjust(**default_layout['plot_margins'])
             figs.append(fig)
 
@@ -986,14 +1043,14 @@ def plot_kde(generated_data_dict,
             'x_label_pad': 10,
             'y_label_pad': 10,
             'legend_bbox_to_anchor': (0.98, 0.98),
-            'plot_margins': {'left': 0.15, 'right': 0.95, 
+            'plot_margins': {'left': 0.15, 'right': 0.95,
                             'top': 0.92, 'bottom': 0.15}
         }
-        
+
         # Update with any user-provided parameters
         if layout_params is not None:
             default_layout.update(layout_params)
-        
+
         figs = []
         divergences = {}
 
@@ -1027,7 +1084,7 @@ def plot_kde(generated_data_dict,
 
             if label in ["Porosity", "Surface Area Density", "Mean Pore Size", "Permeability"]:
                 min_value = max(min_value, 0.0)
-            
+
             if label in ["Porosity"]:
                 max_value = min(max_value, 1.0)
 
@@ -1037,7 +1094,7 @@ def plot_kde(generated_data_dict,
             # Plot validation KDE
             val_kde = stats.gaussian_kde(val.flatten())
             x_kde = np.linspace(min_value, max_value, 200)
-            ax.plot(x_kde, val_kde(x_kde), color=VALIDATION_PLOT_COUNTOUR_COLOR, 
+            ax.plot(x_kde, val_kde(x_kde), color=VALIDATION_PLOT_COUNTOUR_COLOR,
                     label='Validation', linestyle='--', linewidth=2)
 
             # Plot generated KDEs and calculate divergences
@@ -1047,19 +1104,19 @@ def plot_kde(generated_data_dict,
                 gen_kde = stats.gaussian_kde(gen.flatten())
 
                 if not contour:
-                    ax.fill_between(x_kde, 0, gen_kde(x_kde), alpha=0.4, 
+                    ax.fill_between(x_kde, 0, gen_kde(x_kde), alpha=0.4,
                                   label=name, color=GENERATED_PLOT_COLORS[j])
                 else:
-                    ax.plot(x_kde, gen_kde(x_kde), label=name, 
+                    ax.plot(x_kde, gen_kde(x_kde), label=name,
                           color=GENERATED_PLOT_COLORS[j])
 
                 # Calculate divergence metrics
-                kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(), 
+                kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(),
                                             n_samples=10000)
-                hellinger_dist = hellinger_distance_kde_mc(val.flatten(), 
-                                                        gen.flatten(), 
+                hellinger_dist = hellinger_distance_kde_mc(val.flatten(),
+                                                        gen.flatten(),
                                                         n_samples=10000)
-                if label in ['Porosity', 'Surface Area Density', 
+                if label in ['Porosity', 'Surface Area Density',
                             'Mean Pore Size', 'Permeability']:
                     rel_error = mean_relative_error(val.flatten(), gen.flatten())
                 else:
@@ -1076,22 +1133,22 @@ def plot_kde(generated_data_dict,
             ax.set_ylabel("Density", labelpad=default_layout['y_label_pad'])
             ax.set_title(label, pad=default_layout['title_pad'])
             ax.set_ylim(bottom=0.0)
-            
+
             # Set legend with consistent positioning
             if label == 'Porosity':
-                ax.legend(loc=default_layout['legend_loc'], 
+                ax.legend(loc=default_layout['legend_loc'],
                         bbox_to_anchor=default_layout['legend_bbox_to_anchor'],
                         borderaxespad=0)
-                
+
             # Adjust subplot parameters for consistent margins
             plt.subplots_adjust(**default_layout['plot_margins'])
-            
+
             figs.append(fig)
 
         return figs, divergences
 
 
-def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um, 
+def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um,
                                layout_params=None, rcParams_dict=None):
     # Apply rcParams for this function scope
     with plt.rc_context(rc=_get_rc_params(rcParams_dict)):
@@ -1103,10 +1160,10 @@ def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um
             'x_label_pad': 10,
             'y_label_pad': 10,
             'legend_bbox_to_anchor': (0.98, 0.98),
-            'plot_margins': {'left': 0.15, 'right': 0.95, 
+            'plot_margins': {'left': 0.15, 'right': 0.95,
                             'top': 0.92, 'bottom': 0.15}
         }
-        
+
         # Update with any user-provided parameters
         if layout_params is not None:
             default_layout.update(layout_params)
@@ -1119,7 +1176,7 @@ def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um
         # Create a common x-axis for interpolation
         min_centers = np.inf
         max_centers = -np.inf
-        
+
         # Extract generated data and find min/max centers
         generated_psd_pdf_dict = {}
         generated_psd_centers_dict = {}
@@ -1127,16 +1184,16 @@ def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um
             generated_psd_pdf, _ = extract_property(generated_stats, 'psd_pdf')
             generated_psd_centers, _ = extract_property(generated_stats, 'psd_centers')
             generated_psd_centers *= voxel_size_um  # Convert to um
-            
+
             generated_psd_pdf_dict[name] = generated_psd_pdf
             generated_psd_centers_dict[name] = generated_psd_centers
-            
+
             min_centers = min(min_centers, np.min(generated_psd_centers))
             max_centers = max(max_centers, np.max(generated_psd_centers))
-        
+
         min_centers = min(min_centers, np.min(valid_psd_centers))
         max_centers = max(max_centers, np.max(valid_psd_centers))
-        
+
         x_interp = np.logspace(np.log10(min_centers), np.log10(max_centers), num=100)
 
         # PDF Plot using direct KDE for each sample
@@ -1160,33 +1217,33 @@ def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um
 
             linewidth = 2
             if contour:
-                ax.fill_between(x_interp, np.maximum(kde_mean - 2*kde_std, 0), 
+                ax.fill_between(x_interp, np.maximum(kde_mean - 2*kde_std, 0),
                                kde_mean + 2*kde_std, alpha=0.3, color=color)
             else:
-                ax.plot(x_interp, kde_mean - 2*kde_std, color=color, linestyle='--', 
+                ax.plot(x_interp, kde_mean - 2*kde_std, color=color, linestyle='--',
                        linewidth=linewidth, alpha=0.3)
-                ax.plot(x_interp, kde_mean + 2*kde_std, color=color, linestyle='--', 
+                ax.plot(x_interp, kde_mean + 2*kde_std, color=color, linestyle='--',
                        linewidth=linewidth, alpha=0.3)
             ax.plot(x_interp, kde_mean, color=color, label=label, linewidth=linewidth)
 
             return kde_estimates
 
         fig, ax = plt.subplots(1, 1, figsize=default_layout['figsize'])
-        valid_kde_estimates = direct_kde_plot(ax, valid_psd_pdf, valid_psd_centers, 
+        valid_kde_estimates = direct_kde_plot(ax, valid_psd_pdf, valid_psd_centers,
                                             VALIDATION_PLOT_COLOR, 'Validation', contour=False)
-        
+
         divergences = {}
         for i, name in enumerate(generated_stats_dict):
-            generated_kde_estimates = direct_kde_plot(ax, generated_psd_pdf_dict[name], 
-                                                    generated_psd_centers_dict[name], 
+            generated_kde_estimates = direct_kde_plot(ax, generated_psd_pdf_dict[name],
+                                                    generated_psd_centers_dict[name],
                                                     GENERATED_PLOT_COLORS[i], name)
-            
+
             divergences[name] = {
                 'kl_divergence': np.nan,
                 'hellinger_distance': np.nan,
                 'mean_relative_error': np.nan
             }
-        
+
         ax.set_xlabel(r'Pore Size $(\mu m)$', labelpad=default_layout['x_label_pad'])
         ax.set_ylabel('Probability Density', labelpad=default_layout['y_label_pad'])
         ax.set_title('Pore Size Distribution - PDF', pad=default_layout['title_pad'])

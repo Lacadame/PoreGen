@@ -5,13 +5,15 @@ import lightning as L
 from pathlib import Path
 from .binary_datasets import (VoxelToSlicesDataset, VoxelToSubvoxelDataset,
                               SequenceOfVoxelsToSlicesDataset, SequenceOfVoxelsToSubvoxelDataset,
+                              VoxelToSubvoxelSequentialDataset,
                               load_binary_from_eleven_sandstones, load_porespy_generated)
 from poregen.features import feature_extractors
 
 
 class BinaryVoxelDataModule(L.LightningDataModule):
     def __init__(self, data_path: str | Path | list[str | Path] = '',
-                 cfg: dict[str, Any] = {}):
+                 cfg: dict[str, Any] = {},
+                 stride: None | int = None):
         super().__init__()
         self.cfg = cfg
         if data_path == '':
@@ -22,6 +24,7 @@ class BinaryVoxelDataModule(L.LightningDataModule):
         # The default here comes from eleven sandstones
         self.voxel_size_um = (self.cfg.get("voxel_size_um", 2.25) *
                               self.cfg.get("voxel_downscale_factor", 1))
+        self.stride = stride
 
     def setup(self, stage=None):
         voxels = self.load_voxels()
@@ -34,26 +37,41 @@ class BinaryVoxelDataModule(L.LightningDataModule):
             dataset_class = (VoxelToSubvoxelDataset
                              if self.cfg['dimension'] == 3
                              else VoxelToSlicesDataset)
+
         # Prepare feature extractor
         feature_extractor = self.get_feature_extractor()
 
-        # Prepare dataset arguments
-        dataset_args = {
-            'subslice': self.cfg['image_size'],
-            'voxel_downscale_factor': self.cfg['voxel_downscale_factor'],
-            'feature_extractor': feature_extractor,
-            'center': self.cfg.get('center', False),
-            'invert': self.cfg.get('invert', False),
-            'transform': self.cfg.get('transform', False),
-        }
+        
+        if self.stride is not None:
+            # Prepare dataset arguments
+            dataset_args = {
+                'subslice': self.cfg['image_size']
+            }
+            self.train_dataset = VoxelToSubvoxelSequentialDataset(self.stride,
+                                                                  voxels,
+                                                                  dataset_size=self.cfg['training_dataset_size'],
+                                                                  **dataset_args)
+            self.val_dataset = VoxelToSubvoxelSequentialDataset(self.stride,
+                                                                voxels,
+                                                                dataset_size=self.cfg['validation_dataset_size'],
+                                                                **dataset_args)
+        else:
+            # Prepare dataset arguments
+            dataset_args = {
+                'subslice': self.cfg['image_size'],
+                'voxel_downscale_factor': self.cfg['voxel_downscale_factor'],
+                'feature_extractor': feature_extractor,
+                'center': self.cfg.get('center', False),
+                'invert': self.cfg.get('invert', False),
+                'transform': self.cfg.get('transform', False),
+            }
+            self.train_dataset = dataset_class(voxels,
+                                               dataset_size=self.cfg['training_dataset_size'],
+                                               **dataset_args)
 
-        self.train_dataset = dataset_class(voxels,
-                                           dataset_size=self.cfg['training_dataset_size'],
-                                           **dataset_args)
-
-        self.val_dataset = dataset_class(voxels,
-                                         dataset_size=self.cfg['validation_dataset_size'],
-                                         **dataset_args)
+            self.val_dataset = dataset_class(voxels,
+                                             dataset_size=self.cfg['validation_dataset_size'],
+                                             **dataset_args)
 
     def load_voxels(self):
         loader = self.cfg.get('loader', 'eleven_sandstones')
@@ -105,5 +123,6 @@ class BinaryVoxelDataModule(L.LightningDataModule):
                           num_workers=self.cfg['num_workers'])
 
 
-def get_binary_datamodule(data_path: str | Path, cfg: dict[str, Any]) -> BinaryVoxelDataModule:  # noqa: C901
-    return BinaryVoxelDataModule(data_path, cfg)
+def get_binary_datamodule(data_path: str | Path, cfg: dict[str, Any],
+                          stride: None | int = None) -> BinaryVoxelDataModule:  # noqa: C901
+    return BinaryVoxelDataModule(data_path, cfg, stride)

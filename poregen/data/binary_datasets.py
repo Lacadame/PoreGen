@@ -147,47 +147,45 @@ class VoxelToSubvoxelSequentialDataset(BaseVoxelDataset):
         super().__init__(*args, **kwargs)
         self.stride = stride
 
-        # ----- compute grid of starting coordinates ------------------------
         self.starts_per_axis = [
             list(range(0, dim - sub + 1, stride))
             for dim, sub in zip(self.voxels[0].shape, self.subslice)
         ]
+        print('starts_per_axis:', self.starts_per_axis)
         self.per_voxel = np.prod([len(ax) for ax in self.starts_per_axis])
-        self.total_subvoxels = self.per_voxel * len(self.voxels)
+        self.dataset_size = self.per_voxel * len(self.voxels)
+        print('Dataset_size:', self.dataset_size)
 
-        # If caller didn’t override, cover the whole grid
-        if kwargs.get("dataset_size") is None:
-            self.dataset_size = self.total_subvoxels
+    def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if idx >= self.dataset_size:
+            return None
 
-    def __getitem__(self, idx: int):
-        # -------- guard against out-of-range indices -----------------------
-        if idx >= self.total_subvoxels:
-            return None                         # <- early exit
+        # Decode voxel and coordinate indices
+        voxel_idx = idx // self.per_voxel
+        within_voxel_idx = idx % self.per_voxel
+        voxel = self.voxels[voxel_idx]
 
-        # -------- decode which voxel and which coordinate ------------------
-        voxel_idx        = idx // self.per_voxel
-        within_voxel_idx = idx %  self.per_voxel
-        voxel            = self.voxels[voxel_idx]
+        # Calculate grid dimensions
+        nx = len(self.starts_per_axis[-1])  # x-axis
+        ny = len(self.starts_per_axis[-2])  # y-axis
 
-        nx = len(self.starts_per_axis[-1])      # x-axis
-        ny = len(self.starts_per_axis[-2])      # y-axis
-        nz = len(self.starts_per_axis[0])       # z-axis
-
+        # Decode 3D coordinates from linear index
         z_lin = within_voxel_idx // (ny * nx)
-        rem   = within_voxel_idx %  (ny * nx)
+        rem = within_voxel_idx % (ny * nx)
         y_lin = rem // nx
-        x_lin = rem %  nx
+        x_lin = rem % nx
 
+        # Get starting coordinates for each axis
         starts = (
             self.starts_per_axis[0][z_lin],
             self.starts_per_axis[1][y_lin],
             self.starts_per_axis[2][x_lin],
         )
 
-        # -------- crop, post-process, return -------------------------------
+        # Extract and process the subvoxel
         slices = tuple(slice(s, s + sub) for s, sub in zip(starts, self.subslice))
-        crop   = voxel[slices].unsqueeze(0)
-        crop   = self.process_crop(crop)
+        crop = voxel[slices].unsqueeze(0)
+        crop = self.process_crop(crop)
 
         if self.feature_extractor is not None:
             return crop, self.feature_extractor(crop)
