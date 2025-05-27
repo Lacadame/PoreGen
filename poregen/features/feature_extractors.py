@@ -84,11 +84,15 @@ def extract_two_point_correlation_from_slice(slice, bins: int = 32):
     return extract_two_point_correlation_base(slice, bins)
 
 
-def extract_euler_number_density(voxel, voxel_size: float = 1.0):
+def extract_euler_number_density(voxel, voxel_size: float = 1.0, mode="voxel"):
     voxel = voxel[0].numpy().astype(bool)
     processed_voxel = porespy.filters.fill_blind_pores(voxel, conn=6)
     processed_voxel = ~porespy.filters.fill_blind_pores(~processed_voxel, conn=6)
-    euler_number = skimage.measure.euler_number(1 - voxel, connectivity=3)
+    if mode == "voxel":
+        euler_number = skimage.measure.euler_number(1 - processed_voxel, connectivity=3)
+    elif mode == "mesh":
+        m3 = curvature.compute_mean_curvature_integral(1 - processed_voxel, which="gaussian")
+        euler_number = m3 / (4 * np.pi)
     voxel_volume = np.prod(voxel.shape)*voxel_size**3
     euler_number_density = euler_number/voxel_volume
     return {'euler_number_density': torch.tensor(euler_number_density, dtype=torch.float)}

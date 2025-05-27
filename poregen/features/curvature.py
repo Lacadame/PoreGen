@@ -2,7 +2,7 @@ import pyvista
 import numpy as np
 
 
-def compute_mean_curvature_integral(subsample):
+def compute_mean_curvature_integral(subsample, which="mean"):
     """
     Compute the mean curvature integral for a binary volume.
 
@@ -15,12 +15,17 @@ def compute_mean_curvature_integral(subsample):
     -------
     W2 : float
         The mean curvature integral (Minkowski functional W2)
+    W3 : float
+        The gaussian curvature integral (Minkowski functional W3)
     """
     # Create isosurface
     surf = pyvista.wrap(subsample).contour()
 
     # Compute mean curvature at each point
-    h = surf.curvature('mean')              # pointwise H
+    if which in ["mean", "both"]:
+        h = surf.curvature('mean')              # pointwise H
+    if which in ["gaussian", "both"]:
+        q = surf.curvature('gaussian')
 
     # Compute area of each cell (triangle)
     surf = surf.compute_cell_sizes(area=True, length=False, volume=False)
@@ -32,6 +37,13 @@ def compute_mean_curvature_integral(subsample):
     vertex_area[faces] += (cell_area / 3)[:, None]
 
     # Compute integral of mean curvature (with factor 1/2 for Minkowski convention)
-    W2 = 0.5 * np.dot(h, vertex_area)            # ∫ H dA
-
-    return W2
+    if which in ["mean", "both"]:
+        W2 = 0.5 * np.dot(h, vertex_area)            # 0.5 ∫ H dA
+    if which in ["gaussian", "both"]:
+        W2_q = np.dot(q, vertex_area)  # ∫ Q dA
+    if which in ["mean"]:
+        return W2
+    if which in ["gaussian"]:
+        return W2_q
+    if which in ["both"]:
+        return W2, W2_q
