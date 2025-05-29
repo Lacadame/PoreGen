@@ -1,4 +1,13 @@
-import pyvista
+try:
+    import pyvista
+    IS_PYVISTA_INSTALLED = True
+except ImportError:
+    IS_PYVISTA_INSTALLED = False
+
+if not IS_PYVISTA_INSTALLED:
+    import warnings
+    warnings.warn("pyvista is not installed. Curvature features will not be available.")
+
 import numpy as np
 
 
@@ -19,6 +28,8 @@ def compute_mean_curvature_integral(subsample, which="mean"):
         The gaussian curvature integral (Minkowski functional W3)
     """
     # Create isosurface
+    if not IS_PYVISTA_INSTALLED:
+        raise ImportError("pyvista is not installed. Please install it using 'pip install pyvista'.")
     surf = pyvista.wrap(subsample).contour()
 
     # Compute mean curvature at each point
