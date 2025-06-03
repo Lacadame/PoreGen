@@ -228,7 +228,95 @@ class PorosityEmbedder(torch.nn.Module):
             'dembed': self.dembed,
             'scale': self.scale
         }
-    
+
+
+class PorosityVectorEmbedder(torch.nn.Module):
+    def __init__(self, dembed, nhead=4,
+                 ffn_expansion=4, num_layers=2, scale=30.0):
+        super().__init__()
+        self.dembed = dembed
+        self.nhead = nhead
+        self.ffn_expansion = ffn_expansion
+        self.num_layers = num_layers
+        self.scale = scale
+        self.pos_encoder = PositionalEncoding1d(dembed)
+        self.gaussian_proj = commonlayers.GaussianFourierProjection(dembed, scale)
+        self.encoder = torch.nn.TransformerEncoder(
+            torch.nn.TransformerEncoderLayer(
+                d_model=self.dembed,
+                nhead=nhead,
+                dim_feedforward=self.dembed*ffn_expansion,
+                batch_first=True),
+            num_layers=num_layers
+        )
+
+    def forward(self, data):
+        """
+        Parameters
+        ----------
+        data: dict
+            The input data dictionary, containing:
+            porosity : torch.Tensor of shape (..., seq_len)
+                The vector of porosity values
+
+        Returns
+        -------
+        x : torch.Tensor of shape (..., dembed)
+            The embedded tensor
+        """
+        porosity_vector = data['porosity']  # [..., seq_len]
+        seq_len = porosity_vector.shape[-1]
+        positions = torch.arange(seq_len, device=porosity_vector.device)
+        pos_encoding = self.pos_encoder(positions)  # [seq_len, dembed]
+
+        porosity_encoding = self.gaussian_proj(porosity_vector)  # [..., seq_len, dembed]
+        x = porosity_encoding + pos_encoding
+        x = self.encoder(x)
+        return x.mean(dim=1)
+
+    def export_description(self):
+        return {
+            'dembed': self.dembed,
+            'nhead': self.nhead,
+            'ffn_expansion': self.ffn_expansion,
+            'num_layers': self.num_layers,
+            'scale': self.scale
+        }
+
+
+class PorosityVectorTransformer(torch.nn.Module):
+    def __init__(self, porosity_vector_embedder, nhead=4,
+                 ffn_expansion=4, num_layers=2):
+        super().__init__()
+        self.embedder = porosity_vector_embedder
+        self.ffn_expansion = ffn_expansion
+        self.nhead = nhead
+        self.num_layers = num_layers
+        self.encoder = torch.nn.TransformerEncoder(
+            torch.nn.TransformerEncoderLayer(
+                d_model=self.embedder.dembed,
+                nhead=nhead,
+                dim_feedforward=self.embedder.dembed*ffn_expansion,
+                batch_first=True),
+            num_layers=num_layers
+        )
+
+    def forward(self, x):
+        x = self.embedder(x)
+        x = self.encoder(x)
+        return x.mean(dim=1)
+
+    def export_description(self):
+        return {
+            'embedder': self.embedder.export_description(),
+            'encoder': {
+                'd_model': self.embedder.dembed,
+                'nhead': self.nhead,
+                'ffn_expansion': self.ffn_expansion,
+                'num_layers': self.num_layers
+            }
+        }
+
 
 class MomentaEmbedder(torch.nn.Module):
     def __init__(self,
@@ -330,4 +418,10 @@ def get_psd_transformer(dembed,
                                           nhead=nhead,
                                           ffn_expansion=ffn_expansion,
                                           num_layers=num_layers)
+    return transformer
+
+
+def get_porosity_vector_transformer(dembed, nhead=4, ffn_expansion=4, num_layers=2, scale=30.0):
+    embedder = PorosityVectorEmbedder(dembed, scale=scale)
+    transformer = PorosityVectorTransformer(embedder, nhead=nhead, ffn_expansion=ffn_expansion, num_layers=num_layers)
     return transformer
