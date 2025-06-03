@@ -91,7 +91,7 @@ def extract_euler_number_density(voxel, voxel_size: float = 1.0):
     euler_number = skimage.measure.euler_number(1 - voxel, connectivity=3)
     voxel_volume = np.prod(voxel.shape)*voxel_size**3
     euler_number_density = euler_number/voxel_volume
-    return {'euler_number_density': torch.tensor(euler_number_density, dtype=torch.float)}
+    return {'euler_number_density': torch.tensor([euler_number_density], dtype=torch.float)}
 
 
 def extract_porosimetry_base(data,

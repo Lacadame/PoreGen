@@ -23,12 +23,12 @@ LAYOUT_PARAMS = {
 
 # Default rcParams for plots
 DEFAULT_RC_PARAMS = {
-    'font.size': 12,
-    'axes.titlesize': 14,
-    'axes.labelsize': 12,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10
+    'font.size': 20,
+    'axes.titlesize': 24, 
+    'axes.labelsize': 22,
+    'xtick.labelsize': 18,
+    'ytick.labelsize': 18,
+    'legend.fontsize': 18
 }
 
 VALIDATION_PLOT_COUNTOUR_COLOR = "black"
@@ -206,13 +206,13 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
             generated_log_permeabilities_dict = {}
             for name, permeabilities in generated_permeabilities_dict.items():
                 permeabilities = permeabilities[ind_dict[name]]
-                # log_permeabilities = np.log10(np.prod(permeabilities, axis=1)**(1/3))
-                log_permeabilities = np.log10(permeabilities[:, 2])  # z-direction
+                log_permeabilities = np.log10(np.prod(permeabilities, axis=1)**(1/3))
+                # log_permeabilities = np.log10(permeabilities[:, 2])  # z-direction
                 log_permeabilities[~np.isfinite(log_permeabilities)] = -np.inf
                 generated_log_permeabilities_dict[name] = log_permeabilities
 
-            # valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
-            valid_log_permeabilities = np.log10(valid_permeabilities[:, 2])  # z-direction
+            valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
+            # valid_log_permeabilities = np.log10(valid_permeabilities[:, 2])  # z-direction
             valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = -np.inf
 
             if convert_nan_to_zero:
@@ -380,14 +380,14 @@ def plot_unconditional_metrics_group(generated_datapaths,  # noqa: C901
 
         # Save histogram and KDE plots for each property
         for i, prop in enumerate(properties):
-            figs1[i].savefig(savepath / f"stats_histogram_{prop}{plot_tag}.png", dpi=300)
-            figs1_kde[i].savefig(savepath / f"stats_kde_{prop}{plot_tag}.png", dpi=300)
+            figs1[i].savefig(savepath / f"stats_histogram_{prop}{plot_tag}.png", dpi=200)
+            figs1_kde[i].savefig(savepath / f"stats_kde_{prop}{plot_tag}.png", dpi=200)
 
         for i, prop in enumerate(properties):
-            fig2[i].savefig(savepath / f"stats_boxplots_{prop}{plot_tag}.png", dpi=300)
-        fig3.savefig(savepath / f"tpc_comparison{plot_tag}.png", dpi=300)
+            fig2[i].savefig(savepath / f"stats_boxplots_{prop}{plot_tag}.png", dpi=200)
+        fig3.savefig(savepath / f"tpc_comparison{plot_tag}.png", dpi=200)
         if show_psd:
-            fig4.savefig(savepath / f"psd_comparison{plot_tag}.png", dpi=300)
+            fig4.savefig(savepath / f"psd_comparison{plot_tag}.png", dpi=200)
 
         # Save KL divergences to JSON file
         divergences_path = savepath / f"stats_divergences{plot_tag}.json"
@@ -1140,8 +1140,7 @@ def plot_kde(generated_data_dict,
             # Set legend with consistent positioning
             if label == 'Porosity':
                 ax.legend(loc=default_layout['legend_loc'],
-                        bbox_to_anchor=default_layout['legend_bbox_to_anchor'],
-                        borderaxespad=0)
+                        bbox_to_anchor=default_layout['legend_bbox_to_anchor'])
 
             # Adjust subplot parameters for consistent margins
             plt.subplots_adjust(**default_layout['plot_margins'])
