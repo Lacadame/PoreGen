@@ -134,3 +134,6 @@ queue_manager.log
 
 # Temporary scripts
 scripts/**/temp*
+
+# Backup
+*.backup*
