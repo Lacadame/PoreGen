@@ -390,8 +390,8 @@ def _generate_samples(
         generated_samples = np.stack(generated_samples, axis=0)
     else:
         if y is not None:
-            print('Condition', y)
-            y = y[0]
+            if not isinstance(y, dict):
+                y = y[0]
         print(y, 'CONDITION')
         generated_samples = loaded['trainer'].sample(
             nsamples=nsamples,

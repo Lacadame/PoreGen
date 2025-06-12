@@ -219,7 +219,7 @@ class PorosityEmbedder(torch.nn.Module):
 
     def forward(self, x):
         # x : [nbatch, 1]
-        x = x['porosity'].squeeze(-1)  # [nbatch]
+        x = x['porosity'].squeeze(-1)
         y = self.net(self.gaussian_proj(x))
         return y
 
@@ -304,7 +304,8 @@ class PorosityVectorTransformer(torch.nn.Module):
     def forward(self, x):
         x = self.embedder(x)
         x = self.encoder(x)
-        return x.mean(dim=1)
+        print(x)
+        return x
 
     def export_description(self):
         return {

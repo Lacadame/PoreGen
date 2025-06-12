@@ -97,7 +97,10 @@ def extract_euler_number_density(voxel, voxel_size: float = 1.0, mode="voxel"):
         euler_number = m3 / (4 * np.pi)
     voxel_volume = np.prod(voxel.shape)*voxel_size**3
     euler_number_density = euler_number/voxel_volume
-    return {'euler_number_density': torch.tensor(euler_number_density, dtype=torch.float)}
+    euler_number_density = torch.tensor([euler_number_density], dtype=torch.float)
+    if euler_number_density.numel() == 0 or np.isnan(euler_number_density):
+        euler_number_density = torch.tensor([0.0], dtype=torch.float)
+    return {'euler_number_density': euler_number_density}
 
 
 def extract_porosimetry_base(data,
@@ -157,11 +160,16 @@ def extract_surface_area_density_base(data, voxel_size: float = 1.0):
     data = (1 - data[0].long()).numpy()
     sa = surface_area.surface_area_density(data, voxel_size)
     sa = torch.tensor(sa, dtype=torch.float)
+    if sa.numel() == 0 or np.isnan(sa):
+        sa = torch.tensor([0.0], dtype=torch.float)
     if len(data.shape) == 3:
         mean_curvature_integral = curvature.compute_mean_curvature_integral(data)
         mean_curvature_integral = mean_curvature_integral * voxel_size
         sa_int = sa * data.shape[0] * data.shape[1] * data.shape[2] * voxel_size**2
-        mean_curvature = torch.tensor(mean_curvature_integral, dtype=torch.float) / sa_int
+        if sa_int == 0.0 or np.array(mean_curvature_integral).size == 0:
+            mean_curvature = torch.tensor([0.0], dtype=torch.float)
+        else:
+            mean_curvature = torch.tensor(mean_curvature_integral, dtype=torch.float) / sa_int
     else:
         mean_curvature = torch.tensor(np.nan, dtype=torch.float)
     return {'surface_area_density': sa,
