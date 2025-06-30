@@ -60,7 +60,13 @@ class PorePerceptualLoss(torch.nn.Module):
 
     def forward(self, input_tensor, target_tensor):
         assert input_tensor.shape == target_tensor.shape
+        assert len(input_tensor.shape) == 5
         width, height, depth = input_tensor.shape[2:]
+        xslice = input_tensor[:, :, width//2, :, :]
+        yslice = target_tensor[:, :, width//2, :, :]
+        zslice = input_tensor[:, :, width//2, :, :]
+        
+        
 
 def load_deepore():
     test_model = DeePorePyTorch()  # Create a new model instance
