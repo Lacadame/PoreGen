@@ -41,7 +41,6 @@ class BinaryVoxelDataModule(L.LightningDataModule):
         # Prepare feature extractor
         feature_extractor = self.get_feature_extractor()
 
-        
         if self.stride is not None:
             # Prepare dataset arguments
             dataset_args = {

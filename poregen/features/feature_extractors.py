@@ -1,4 +1,4 @@
-from typing import Callable, Any
+from typing import Callable, Any, Literal
 import functools
 
 import numpy as np
@@ -258,6 +258,7 @@ def extract_composite(
 # Functions to make extractors
 
 def make_feature_extractor(extractor_name: str,
+                           input_type: Literal['binary', 'edt'] = 'binary',
                            **kwargs):
     # Get the extractor function
     if extractor_name not in AVAILABLE_EXTRACTORS:
@@ -266,7 +267,12 @@ def make_feature_extractor(extractor_name: str,
     extractor_name_extended = f"extract_{extractor_name}"
     extractor_fn = globals()[extractor_name_extended]
     # Make the extractor function from partial
-    extractor_fn = functools.partial(extractor_fn, **kwargs)
+    extractor_fn_partial = functools.partial(extractor_fn, **kwargs)
+    if input_type == "edt":
+        binarization_fn = lambda x: x > 0  # noqa: E731
+        extractor_fn = lambda x: extractor_fn_partial(binarization_fn(x))  # noqa: E731
+    else:
+        extractor_fn = extractor_fn_partial
     return extractor_fn
 
 
