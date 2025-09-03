@@ -1,8 +1,7 @@
-import porespy
 import openpnm
 import numpy as np
 
-from ._snow2 import snow2
+from .snow2 import snow2
 
 
 def calculate_permeability_from_pnm(volume, voxel_length):

@@ -6,17 +6,23 @@ import dask.array as da
 import inspect as insp
 import logging
 import numpy as np
-from numba import njit, prange
+import psutil
 from edt import edt
 import scipy.ndimage as spim
 import scipy.spatial as sptl
 from skimage.segmentation import watershed
 from skimage.morphology import square, cube
-from porespy.tools import _check_for_singleton_axes
-from porespy.tools import extend_slice, ps_rect, ps_round
-from porespy.tools import Results
-from porespy.filters import chunked_func
-from porespy import settings
+
+from numba import njit, prange
+
+from .surface_area import extend_slice
+from .porosimetry import ps_rect, ps_round
+# from porespy.tools import _check_for_singleton_axes
+# from porespy.tools import extend_slice, ps_rect, ps_round
+# from porespy.tools import Results
+# from porespy.filters import chunked_func
+# from porespy import settings
+from poregen.utils import AttrDict
 
 
 __all__ = [
@@ -130,7 +136,7 @@ def snow_partitioning(im, dt=None, r_max=4, sigma=0.4, peaks=None):
         logger.debug(f"Peaks after trimming nearby points: {spim.label(peaks)[1]}")
     peaks, N = spim.label(peaks > 0, structure=ps_rect(3, im.ndim))
     regions = watershed(image=-dt, markers=peaks)
-    tup = Results()
+    tup = AttrDict()
     tup.im = im
     tup.dt = dt
     tup.peaks = peaks
@@ -237,7 +243,7 @@ def snow_partitioning_n(im, r_max=4, sigma=0.4, peaks=None):
         _peaks = _peaks + phase_snow.peaks + (phase_snow.peaks > 0)*num[i]
         num.append(np.amax(combined_region))
 
-    tup = Results()
+    tup = AttrDict()
     tup.im = im
     tup.dt = combined_dt
     tup.phase_max_label = num[1:]
@@ -298,7 +304,6 @@ def find_peaks(dt, r_max=4, strel=None, sigma=None, divs=1):
 
     """
     im = dt > 0
-    _check_for_singleton_axes(im)
     if strel is None:
         strel = ps_round(r=r_max, ndim=im.ndim)
     if sigma is not None:
@@ -314,7 +319,7 @@ def find_peaks(dt, r_max=4, strel=None, sigma=None, divs=1):
         mx = chunked_func(func=spim.maximum_filter, overlap=overlap,
                           im_arg='input', input=dt + 2.0 * (~im),
                           footprint=strel,
-                          cores=settings.ncores, divs=divs)
+                          cores=psutil.cpu_count(logical=False), divs=divs)
     else:
         # The "2 * (~im)" sets solid voxels to 2 so peaks are not found
         # at the void/solid interface
@@ -707,7 +712,7 @@ def snow_partitioning_parallel(im,
     # Stitching watershed chunks
     logger.info('Stitching watershed chunks')
     regions = _watershed_stitching(im=regions, chunk_shape=chunk_shape)
-    tup = Results()
+    tup = AttrDict()
     tup.im = im
     tup.dt = dt
     tup.regions = regions
@@ -1095,3 +1100,276 @@ def _snow_chunked(dt, r_max=5, sigma=0.4):
     peaks, N = spim.label(peaks > 0)
     regions = watershed(image=-dt, markers=peaks)
     return regions * (dt > 0)
+
+
+def chunked_func(func,  # noqa: C901
+                 overlap=None,
+                 divs=2,
+                 cores=None,
+                 im_arg=["input", "image", "im"],
+                 strel_arg=["strel", "structure", "footprint"],
+                 **kwargs):
+    r"""
+    Performs the specfied operation "chunk-wise" in parallel using ``dask``.
+
+    This can be used to save memory by doing one chunk at a time
+    (``cores=1``) or to increase computation speed by spreading the work
+    across multiple cores (e.g. ``cores=8``)
+
+    This function can be used with any operation that applies a
+    structuring element of some sort, since this implies that the
+    operation is local and can be chunked.
+
+    Parameters
+    ----------
+    func : function handle
+        The function which should be applied to each chunk, such as
+        ``spipy.ndimage.binary_dilation``.
+    overlap : scalar or list of scalars, optional
+        The amount of overlap to include when dividing up the image. This
+        value will almost always be the size (i.e. raduis) of the
+        structuring element. If not specified then the amount of overlap
+        is inferred from the size of the structuring element, in which
+        case the ``strel_arg`` must be specified.
+    divs : scalar or list of scalars (default = [2, 2, 2])
+        The number of chunks to divide the image into in each direction.
+        The default is 2 chunks in each direction, resulting in a
+        quartering of the image and 8 total chunks (in 3D).  A scalar is
+        interpreted as applying to all directions, while a list of scalars
+        is interpreted as applying to each individual direction.
+    cores : scalar
+        The number of cores which should be used.  By default, all cores
+        will be used, or as many are needed for the given number of
+        chunks, which ever is smaller.
+    im_arg : str
+        The keyword used by ``func`` for the image to be operated on. By
+        default this function will look for ``image``, ``input``, and
+        ``im`` which are commonly used by *scipy.ndimage* and *skimage*.
+    strel_arg : str
+        The keyword used by ``func`` for the structuring element to apply.
+        This is only needed if ``overlap`` is not specified. By default
+        this function will look for ``strel``, ``structure``, and
+        ``footprint`` which are commonly used by *scipy.ndimage* and
+        *skimage*.
+    kwargs
+        All other arguments are passed to ``func`` as keyword arguments.
+        Note that PoreSpy will fetch the image from this list of keywords
+        using the value provided to ``im_arg``.
+
+    Returns
+    -------
+    result : ndarray
+        An image the same size as the input image, with the specified
+        filter applied as though done on a single large image. There
+        should be *no* difference.
+
+    Notes
+    -----
+    This function divides the image into the specified number of chunks,
+    but also applies a padding to each chunk to create an overlap with
+    neighboring chunks. This way the operation does not have any edge
+    artifacts. The amount of padding is usually equal to the radius of the
+    structuring element but some functions do not use one, such as the
+    distance transform and Gaussian blur.  In these cases the user can
+    specify ``overlap``.
+
+    See Also
+    --------
+    scikit-image.util.apply_parallel
+
+    Examples
+    --------
+    `Click here
+    <https://porespy.org/examples/filters/reference/chunked_func.html>`_
+    to view online example.
+
+    """
+
+    import dask
+
+    @dask.delayed
+    def apply_func(func, **kwargs):
+        # Apply function on sub-slice of overall image
+        return func(**kwargs)
+
+    # Determine the value for im_arg
+    if isinstance(im_arg, str):
+        im_arg = [im_arg]
+    for item in im_arg:
+        if item in kwargs.keys():
+            im = kwargs[item]
+            im_arg = item
+            break
+    # Fetch image from the kwargs dict
+    im = kwargs[im_arg]
+    # Determine the number of divisions to create
+    divs = np.ones((im.ndim,), dtype=int) * np.array(divs)
+    if cores is None:
+        cores = psutil.cpu_count(logical=False)
+    # If overlap given then use it, otherwise search for strel in kwargs
+    if overlap is not None:
+        overlap = overlap * (divs > 1)
+    else:
+        if isinstance(strel_arg, str):
+            strel_arg = [strel_arg]
+        for item in strel_arg:
+            if item in kwargs.keys():
+                strel = kwargs[item]
+                break
+        overlap = np.array(strel.shape) * (divs > 1)
+    slices = subdivide(im=im, divs=divs, overlap=overlap)
+    # Apply func to each subsection of the image
+    res = []
+    for s in slices:
+        # Extract subsection from image and input into kwargs
+        kwargs[im_arg] = dask.delayed(np.ascontiguousarray(im[tuple(s)]))
+        res.append(apply_func(func=func, **kwargs))
+    # Have dask actually compute the function on each subsection in parallel
+    # with ProgressBar():
+        # ims = dask.compute(res, num_workers=cores)[0]
+    ims = dask.compute(res, num_workers=cores)[0]
+    # Finally, put the pieces back together into a single master image, im2
+    im2 = recombine(ims=ims, slices=slices, overlap=overlap)
+    return im2
+
+
+def subdivide(im, divs=2, overlap=0):
+    r"""
+    Returns slices into an image describing the specified number of sub-arrays.
+
+    This function is useful for performing operations on smaller images for
+    memory or speed.  Note that for most typical operations this will NOT work,
+    since the image borders would cause artifacts (e.g. ``distance_transform``)
+
+    Parameters
+    ----------
+    im : ndarray
+        The image of the porous media
+    divs : scalar or array_like
+        The number of sub-divisions to create in each axis of the image.  If a
+        scalar is given it is assumed this value applies in all dimensions.
+    overlap : scalar or array_like
+        The amount of overlap to use when dividing along each axis.  If a
+        scalar is given it is assumed this value applies in all dimensions.
+
+    Returns
+    -------
+    slices : ndarray
+        An ndarray containing sets of slice objects for indexing into ``im``
+        that extract subdivisions of an image.  If ``flatten`` was ``True``,
+        then this array is suitable for iterating.  If ``flatten`` was
+        ``False`` then the slice objects must be accessed by row, col, layer
+        indices.  An ndarray is the preferred container since its shape can
+        be easily queried.
+
+    See Also
+    --------
+    chunked_func
+
+    Examples
+    --------
+    >>> import porespy as ps
+    >>> import matplotlib.pyplot as plt
+    >>> im = ps.generators.blobs(shape=[200, 200])
+    >>> s = ps.tools.subdivide(im, divs=[2, 2])
+    >>> print(len(s))
+    4
+
+    `Click here
+    <https://porespy.org/examples/tools/reference/subdivide.html>`_
+    to view online example.
+
+    """
+    divs = np.ones((im.ndim,), dtype=int) * np.array(divs)
+    overlap = overlap * (divs > 1)
+
+    s = np.zeros(shape=divs, dtype=object)
+    spacing = np.round(np.array(im.shape)/divs, decimals=0).astype(int)
+    for i in range(s.shape[0]):
+        x = spacing[0]
+        sx = slice(x*i, min(im.shape[0], x*(i+1)), None)
+        for j in range(s.shape[1]):
+            y = spacing[1]
+            sy = slice(y*j, min(im.shape[1], y*(j+1)), None)
+            if im.ndim == 3:
+                for k in range(s.shape[2]):
+                    z = spacing[2]
+                    sz = slice(z*k, min(im.shape[2], z*(k+1)), None)
+                    s[i, j, k] = tuple([sx, sy, sz])
+            else:
+                s[i, j] = tuple([sx, sy])
+    s = s.flatten().tolist()
+    for i, item in enumerate(s):
+        s[i] = extend_slice(slices=item, shape=im.shape, pad=overlap)
+    return s
+
+
+def recombine(ims, slices, overlap):
+    r"""
+    Recombines image chunks back into full image of original shape
+
+    Parameters
+    ----------
+    ims : list of ndarrays
+        The chunks of the original image, which may or may not have been
+        processed.
+    slices : list of slice objects
+        The slice objects which were used to obtain the chunks in ``ims``
+    overlap : int of list ints
+        The amount of overlap used when creating chunks
+
+    Returns
+    -------
+    im : ndarray
+        An image constituted from the chunks in ``ims`` of the same shape
+        as the original image.
+
+    See Also
+    --------
+    chunked_func, subdivide
+
+    Examples
+    --------
+    `Click here
+    <https://porespy.org/examples/tools/reference/recombine.html>`_
+    to view online example.
+
+    """
+    shape = [0]*ims[0].ndim
+    for s in slices:
+        for dim in range(len(slices[0])):
+            shape[dim] = max(shape[dim], s[dim].stop)
+
+    if isinstance(overlap, int):
+        overlap = [overlap]*len(shape)
+
+    im = np.zeros(shape, dtype=ims[0].dtype)
+    for i, s in enumerate(slices):
+        # Prepare new slice objects into main and sub-sliced image
+        a = []  # Slices into original image
+        b = []  # Slices into chunked image
+        for dim in range(im.ndim):
+            if s[dim].start == 0:
+                ax = 0
+                bx = 0
+            else:
+                ax = s[dim].start + overlap[dim]
+                bx = overlap[dim]
+            if s[dim].stop == im.shape[dim]:
+                ay = im.shape[dim]
+                by = im.shape[dim]
+            else:
+                ay = s[dim].stop - overlap[dim]
+                by = s[dim].stop - s[dim].start - overlap[dim]
+            a.append(slice(ax, ay, None))
+            b.append(slice(bx, by, None))
+        # Convert lists of slices to tuples
+        a = tuple(a)
+        b = tuple(b)
+        # Insert image chunk into main image
+        try:
+            im[a] = ims[i][b]
+        except ValueError:
+            raise IndexError('The applied filter seems to have returned a '
+                             + 'larger image that it was sent.')
+    return im

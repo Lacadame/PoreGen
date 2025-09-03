@@ -2,15 +2,15 @@ from typing import Callable, Any, Literal
 import functools
 
 import numpy as np
-import porespy
+# import porespy
 import torch
 import skimage.measure
 
-from . import porosimetry
-from . import permeability
-from . import surface_area
-from . import curvature
-
+# from . import porosimetry
+# from . import permeability
+# from . import surface_area
+# from . import curvature
+from . import basicmetrics
 
 KwargsType = dict[str, Any]
 
@@ -65,7 +65,7 @@ EXTRACTORS_RETURN_KEYS_MAP = {
 
 def extract_two_point_correlation_base(data, bins: int = 32):
     data = data[0].float()
-    tpc_data = porespy.metrics.two_point_correlation((1 - data).numpy(), bins=bins)
+    tpc_data = basicmetrics.two_point_correlation((1 - data).numpy(), bins=bins)
     dist = torch.tensor(tpc_data.distance, dtype=torch.float)
     prob = torch.tensor(tpc_data.probability_scaled, dtype=torch.float)
     prob = torch.nan_to_num(prob)
@@ -87,12 +87,15 @@ def extract_two_point_correlation_from_slice(slice, bins: int = 32):
 
 
 def extract_euler_number_density(voxel, voxel_size: float = 1.0, mode="voxel"):
+    from . import filters
+
     voxel = voxel[0].numpy().astype(bool)
-    processed_voxel = porespy.filters.fill_blind_pores(voxel, conn=6)
-    processed_voxel = ~porespy.filters.fill_blind_pores(~processed_voxel, conn=6)
+    processed_voxel = filters.fill_blind_pores(voxel, conn=6)
+    processed_voxel = ~filters.fill_blind_pores(~processed_voxel, conn=6)
     if mode == "voxel":
         euler_number = skimage.measure.euler_number(1 - processed_voxel, connectivity=3)
     elif mode == "mesh":
+        from . import curvature
         m3 = curvature.compute_mean_curvature_integral(1 - processed_voxel, which="gaussian")
         euler_number = m3 / (4 * np.pi)
     voxel_volume = np.prod(voxel.shape)*voxel_size**3
@@ -107,9 +110,11 @@ def extract_porosimetry_base(data,
                              bins: int = 32,
                              log: bool = False,
                              maximum_momentum: int = 4):
+    from . import porosimetry
+
     data = data[0].float()
     im = porosimetry.local_thickness((1 - data).numpy())
-    psd_data = porespy.metrics.pore_size_distribution(im, bins=bins, log=log)
+    psd_data = basicmetrics.pore_size_distribution(im, bins=bins, log=log)
     bin_centers = torch.tensor(psd_data.bin_centers.copy(), dtype=torch.float)
     cdf = torch.tensor(psd_data.cdf.copy(), dtype=torch.float)
     pdf = torch.tensor(psd_data.pdf.copy(), dtype=torch.float)
@@ -157,12 +162,14 @@ def extract_porosimetry_from_voxel_slice(voxel,
 
 
 def extract_surface_area_density_base(data, voxel_size: float = 1.0):
+    from . import surface_area
     data = (1 - data[0].long()).numpy()
     sa = surface_area.surface_area_density(data, voxel_size)
     sa = torch.tensor(sa, dtype=torch.float)
     if sa.numel() == 0 or np.isnan(sa):
         sa = torch.tensor([0.0], dtype=torch.float)
     if len(data.shape) == 3:
+        from . import curvature
         mean_curvature_integral = curvature.compute_mean_curvature_integral(data)
         mean_curvature_integral = mean_curvature_integral * voxel_size
         sa_int = sa * data.shape[0] * data.shape[1] * data.shape[2] * voxel_size**2
@@ -201,15 +208,18 @@ def extract_porosity_vector(voxel):
 
 
 def extract_effective_porosity(slice):
+    from . import filters
+
     volume = 1 - slice[0].numpy()
-    effective_porosity = porespy.filters.fill_blind_pores(volume).mean()
+    effective_porosity = filters.fill_blind_pores(volume).mean()
     return {'effective_porosity': torch.tensor([effective_porosity], dtype=torch.float)}
 
 
 def extract_permeability_from_pnm(voxel,
                                   voxel_length=2.25e-6):
+    from . import permeability_from_pnm
     try:
-        perm = permeability.calculate_permeability_from_pnm(voxel, voxel_length)
+        perm = permeability_from_pnm.calculate_permeability_from_pnm(voxel, voxel_length)
     except Exception:  # Could not calculate permeability
         perm = np.nan*np.ones(len(voxel.shape) - 1)
     return {'permeability': torch.tensor(perm, dtype=torch.float)}

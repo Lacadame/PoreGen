@@ -6,12 +6,11 @@ import logging
 import numpy as np
 import scipy.ndimage as spim
 from skimage.morphology import disk, ball
+from skimage.segmentation import relabel_sequential, find_boundaries
 from edt import edt
-from porespy.tools import extend_slice
-from porespy import settings
-from porespy.tools import make_contiguous
-from porespy.metrics import region_surface_areas, region_interface_areas
-from porespy.metrics import region_volumes
+
+from .surface_area import extend_slice, region_surface_areas, region_interface_areas, region_volumes
+from .porosimetry import borders
 
 
 __all__ = [
@@ -22,7 +21,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def regions_to_network(regions, phases=None, voxel_size=1, accuracy='standard'):
+def regions_to_network(regions, phases=None, voxel_size=1, accuracy='standard'):  # noqa: C901
     r"""
     Analyzes an image that has been partitioned into pore regions and extracts
     the pore and throat geometry as well as network connectivity.
@@ -264,3 +263,236 @@ def regions_to_network(regions, phases=None, voxel_size=1, accuracy='standard'):
         net['throat.equivalent_diameter'] = (4*A/np.pi)**(1/2)
 
     return net
+
+
+def make_contiguous(im, mode='keep_zeros'):
+    r"""
+    Take an image with arbitrary greyscale values and adjust them to ensure
+    all values fall in a contiguous range starting at 0.
+
+    Parameters
+    ----------
+    im : array_like
+        An ND array containing greyscale values
+    mode : string
+        Controls how the ranking is applied in the presence of numbers less
+        than or equal to 0.
+
+        'keep_zeros'
+            (default) Voxels equal to 0 remain 0, and all other
+            numbers are ranked starting at 1, include negative numbers,
+            so [-1, 0, 4] becomes [1, 0, 2]
+
+        'symmetric'
+            Negative and positive voxels are ranked based on their
+            respective distances to 0, so [-4, -1, 0, 5] becomes
+            [-2, -1, 0, 1]
+
+        'clipped'
+            Voxels less than or equal to 0 are set to 0, while
+            all other numbers are ranked starting at 1, so [-3, 0, 2]
+            becomes [0, 0, 1].
+
+        'none'
+            Voxels are ranked such that the smallest or most
+            negative number becomes 1, so [-4, 2, 0] becomes [1, 3, 2].
+            This is equivalent to calling ``scipy.stats.rankdata`` directly,
+            and reshaping the result to match ``im``.
+
+    Returns
+    -------
+    image : ndarray
+        An ndarray the same size as ``im`` but with all values in contiguous
+        order.
+
+    Examples
+    --------
+    >>> import porespy as ps
+    >>> import numpy as np
+    >>> im = np.array([[0, 2, 9], [6, 8, 3]])
+    >>> im = ps.tools.make_contiguous(im)
+    >>> print(im)
+    [[0 1 5]
+     [3 4 2]]
+
+    `Click here
+    <https://porespy.org/examples/tools/reference/make_contiguous.html>`_
+    to view online example.
+
+    """
+    # This is a very simple version using relabel_sequential
+    im = np.array(im)
+    if mode == 'none':
+        im = im + np.abs(np.min(im)) + 1
+        im_new = relabel_sequential(im)[0]
+    if mode == 'keep_zeros':
+        mask = im == 0
+        im = im + np.abs(np.min(im)) + 1
+        im[mask] = 0
+        im_new = relabel_sequential(im)[0]
+    if mode == 'clipped':
+        mask = im <= 0
+        im[mask] = 0
+        im_new = relabel_sequential(im)[0]
+    if mode == 'symmetric':
+        mask = im < 0
+        im_neg = relabel_sequential(-im*mask)[0]
+        mask = im >= 0
+        im_pos = relabel_sequential(im*mask)[0]
+        im_new = im_pos - im_neg
+    return im_new
+
+
+def label_phases(
+        network,
+        alias={1: 'void', 2: 'solid'}):
+    r"""
+    Create pore and throat labels based on 'pore.phase' values
+
+    Parameters
+    ----------
+    network : dict
+        The network stored as a dictionary as returned from the
+        ``regions_to_network`` function
+    alias : dict
+        A mapping between integer values in 'pore.phase' and string labels.
+        The default is ``{1: 'void', 2: 'solid'}`` which will result in the
+        labels ``'pore.void'`` and ``'pore.solid'``, as well as
+        ``'throat.solid_void'``, ``'throat.solid_solid'``, and
+        ``'throat.void_void'``.  The reverse labels are also added for
+        convenience like ``throat.void_solid``.
+
+    Returns
+    -------
+    network : dict
+        The same ``network`` as passed in but with new boolean arrays added
+        for the phase labels.
+
+    Examples
+    --------
+    `Click here
+    <https://porespy.org/examples/networks/reference/label_phases.html>`_
+    to view online example.
+
+    """
+    conns = network['throat.conns']
+    for i in alias.keys():
+        pore_i_hits = network['pore.phase'] == i
+        network['pore.' + alias[i]] = pore_i_hits
+        for j in alias.keys():
+            pore_j_hits = network['pore.phase'] == j
+            throat_hits = pore_i_hits[conns[:, 0]] * pore_j_hits[conns[:, 1]]
+            throat_hits += pore_i_hits[conns[:, 1]] * pore_j_hits[conns[:, 0]]
+            if np.any(throat_hits):
+                name = 'throat.' + '_'.join([alias[i], alias[j]])
+                if name not in network.keys():
+                    network[name] = np.zeros_like(conns[:, 0], dtype=bool)
+                network[name] += throat_hits
+    return network
+
+
+def label_boundaries(
+        network,
+        labels=[['left', 'right'], ['front', 'back'], ['top', 'bottom']],
+        tol=1e-9):
+    r"""
+    Create boundary pore labels based on proximity to axis extrema
+
+    Parameters
+    ----------
+    network : dict
+        The network stored as a dictionary as returned from the
+        ``regions_to_network`` function
+    labels : list of lists
+        A 3-element list, with each element containing a pair of strings
+        indicating the label to apply to the beginning and end of each axis.
+        The default is ``[['left', 'right'], ['front', 'back'],
+        ['top', 'bottom']]`` which will apply the label ``'left'`` to all
+        pores with the minimum x-coordinate, and ``'right'`` to the pores
+        with the maximum x-coordinate, and so on.
+
+    Returns
+    -------
+    network : dict
+        The same ``network`` as passed in but with new boolean arrays added
+        for the boundary labels.
+
+    Examples
+    --------
+    `Click here
+    <https://porespy.org/examples/networks/reference/label_boundaries.html>`_
+    to view online example.
+
+    """
+    crds = network['pore.coords']
+    extents = [[crds[:, i].min(), crds[:, i].max()]
+               for i in range(len(crds[0, :]))]
+    network['pore.boundary'] = np.zeros_like(crds[:, 0], dtype=bool)
+    for i, axis in enumerate(labels):
+        for j, face in enumerate(axis):
+            if face:
+                hits = crds[:, i] == extents[i][j]
+                network['pore.boundary'] += hits
+                network['pore.' + labels[i][j]] = hits
+    return network
+
+
+def add_boundary_regions(regions, pad_width=3):
+    r"""
+    Add boundary regions on specified faces of an image
+
+    Parameters
+    ----------
+    regions : ndarray
+        An image containing labelled regions, such as a watershed segmentation
+    pad_width : array_like
+        Number of layers to add to the beginning and end of each axis. This
+        argument is handled similarly to the ``pad_width`` in the ``np.pad``
+        function. A scalar adds the same amount to the beginning and end of
+        each axis. [A, B] adds A to the beginning of each axis and B to the
+        ends.  [[A, B], ..., [C, D]] adds A to the beginning and B to the
+        end of the first axis, and so on. The default is to add 3 voxels on
+        both ends of each axis.  One exception is is [A, B, C] which A to
+        the beginning and end of the first axis, and so on. This extra option
+        is useful for putting 0 on some axes (i.e. [3, 0, 0]).
+
+    Returns
+    -------
+    padded_regions : ndarray
+        An image with new regions padded on each side of the specified
+        width.
+
+    Examples
+    --------
+    `Click here
+    <https://porespy.org/examples/networks/reference/add_boundary_regions.html>`_
+    to view online example.
+
+    """
+    # Parse user specified padding
+    faces = np.array(pad_width)
+    if faces.size == 1:
+        faces = np.array([[faces, faces]]*regions.ndim)
+    elif faces.size == regions.ndim:
+        faces = np.vstack([faces]*2)
+    else:
+        pass
+    t = faces.max()
+    mx = regions.max()
+    # Put a border around each region so padded regions are isolated
+    bd = find_boundaries(regions, connectivity=regions.ndim, mode='inner')
+    # Pad by t in all directions, this will be trimmed down later
+    face_regions = np.pad(regions*(~bd), pad_width=t, mode='edge')
+    # Set corners to 0 so regions don't connect across faces
+    edges = borders(shape=face_regions.shape, mode='edges', thickness=t)
+    face_regions[edges] = 0
+    # Extract a mask of just the faces
+    mask = borders(shape=face_regions.shape, mode='faces', thickness=t)
+    # Relabel regions on faces
+    new_regions = spim.label(face_regions*mask)[0] + mx*(face_regions > 0)
+    new_regions[~mask] = regions.flatten()
+    # Trim image down to user specified size
+    s = tuple([slice(t-ax[0], -(t-ax[1]) or None) for ax in faces])
+    new_regions = new_regions[s]
+    new_regions = make_contiguous(new_regions)
+    return new_regions

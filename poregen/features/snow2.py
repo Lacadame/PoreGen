@@ -1,15 +1,16 @@
 """
 Clone of PoreSpy snow2 function, but without tqdm
 """
-
 import logging
 import numpy as np
-from porespy.networks import add_boundary_regions
-from porespy.networks import label_phases, label_boundaries
-from porespy.tools import Results
+# from porespy.networks import add_boundary_regions
+# from porespy.networks import label_phases, label_boundaries
+# from porespy.tools import Results
 
-from ._snows import snow_partitioning, snow_partitioning_parallel
-from ._getnet import regions_to_network
+from .snows import snow_partitioning, snow_partitioning_parallel
+from .networks import regions_to_network, label_phases, label_boundaries, add_boundary_regions
+
+from poregen.utils import AttrDict
 
 __all__ = [
     "snow2",
@@ -20,7 +21,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def snow2(phases,
+def snow2(phases,  # noqa: C901
           phase_alias=None,
           boundary_width=3,
           accuracy='standard',
@@ -210,7 +211,7 @@ def snow2(phases,
         L = [L[i]*int(W[i] > 0) for i in range(len(L))]
         L = np.reshape(L, newshape=boundary_width.shape)
         net = label_boundaries(net, labels=L)
-    result = Results()
+    result = AttrDict()
     result.network = net
     result.regions = regions
     result.phases = phases
