@@ -19,3 +19,4 @@ pyvista
 dask
 joblib
 tslearn
+wandb
