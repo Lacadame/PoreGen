@@ -20,7 +20,7 @@ AVAILABLE_EXTRACTORS = [
     'two_point_correlation_from_voxel',
     'two_point_correlation_from_slice',
     'porosity',
-    'porosity_vector',
+    'slice_porosities',
     'porosimetry_from_voxel_slice',
     'porosimetry_from_voxel',
     'porosimetry_from_slice',
@@ -38,7 +38,7 @@ AVAILABLE_EXTRACTORS = [
 
 EXTRACTORS_RETURN_KEYS_MAP = {
     'porosity': ['porosity'],
-    'porosity_vector': ['porosity'],
+    'slice_porosities': ['slice', 'porosity'],
     'effective_porosity': ['effective_porosity'],
     'surface_area_density_from_slice': ['surface_area_density', 'mean_curvature'],
     'surface_area_density_from_voxel': ['surface_area_density', 'mean_curvature'],
@@ -202,9 +202,11 @@ def extract_porosity(slice):
     return {'porosity': porosity}
 
 
-def extract_porosity_vector(voxel):
+def extract_slice_porosities(voxel):
     porosity = torch.tensor([extract_porosity(voxel[i])['porosity'] for i in range(voxel.shape[0])], dtype=torch.float)
-    return {'porosity': porosity}
+    dict = {'slice': torch.arange(voxel.shape[0]), 'porosity': porosity}
+    print(voxel.shape, dict)
+    return dict
 
 
 def extract_effective_porosity(slice):
