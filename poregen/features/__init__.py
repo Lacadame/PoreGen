@@ -8,6 +8,9 @@ to avoid maintanance hell, and instead copy the necessary code (and simplify)
 from . import feature_extractors
 from . import porosimetry
 from . import basicmetrics
+from . import permeability_from_pnm
+from . import permeability_from_lbm
+from . import snow2
 # from . import surface_area
 # from . import permeability
 # from . import permeability_from_lbm
