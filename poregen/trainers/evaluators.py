@@ -475,11 +475,12 @@ def _calculate_statistics(generated_samples, valid_samples, extractor, guided, x
     cond_stats_all = None
     if x_cond is not None:
         if guided:
-            cond_stats_all = []
-            for x_cond_i in x_cond:
-                cond_stats = extractor(torch.tensor(x_cond_i))
-                _convert_dict_items_to_numpy(cond_stats)
-                cond_stats_all.append(cond_stats)
+            pass
+    #         cond_stats_all = []
+    #         for x_cond_i in x_cond:
+    #             cond_stats = extractor(torch.tensor(x_cond_i))
+    #             _convert_dict_items_to_numpy(cond_stats)
+    #             cond_stats_all.append(cond_stats)
         else:
             cond_stats = extractor(torch.tensor(x_cond))
             _convert_dict_items_to_numpy(cond_stats)
@@ -534,9 +535,10 @@ def _save_results(generated_samples, valid_samples, generated_stats_all, valid_s
 
     if x_cond is not None:
         if guided:
-            x_cond_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(cond_stats_all)}
-            with open(stats_folder / "xcond_stats.json", "w") as f:
-                json.dump(x_cond_stats_dict, f, cls=NumpyEncoder)
+            pass
+            # x_cond_stats_dict = {f"{i+1:05d}": stats for i, stats in enumerate(cond_stats_all)}
+            # with open(stats_folder / "xcond_stats.json", "w") as f:
+            #     json.dump(x_cond_stats_dict, f, cls=NumpyEncoder)
         else:
             with open(stats_folder / "xcond_stats.json", "w") as f:
                 json.dump(cond_stats, f, cls=NumpyEncoder)

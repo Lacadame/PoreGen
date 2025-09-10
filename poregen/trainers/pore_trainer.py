@@ -325,8 +325,11 @@ class PoreTrainer:
         if shape is None:
             shape = self.get_shape_from_data_config()
         if nsteps is None:
-            if integrator == 'karras' or integrator == 'sde':
+            if integrator == 'karras':
                 nsteps = 256
+            elif integrator == 'sde':
+                nsteps = 256
+                integrator = diffsci.models.EulerMaruyamaIntegrator()
             else:
                 nsteps = 50
         if not filter_spectra:
