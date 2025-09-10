@@ -54,6 +54,30 @@ LAYOUT_PARAMS = {
 }
 
 
+# VALIDATION_PLOT_COLOR = 'black'
+# GENERATED_PLOT_COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
+# VALIDATION_PLOT_COLOR = '#E41A1C'  # A clear, vibrant red
+# GENERATED_PLOT_COLORS = ['#377EB8',  # Blue
+#                          '#4DAF4A',  # Green
+#                          '#984EA3',  # Purple
+#                          '#FF7F00',  # Orange
+#                          '#A65628',  # Brown
+#                          '#F781BF'
+#                         ]  # Pink
+
+VALIDATION_PLOT_COUNTOUR_COLOR = "black"
+VALIDATION_PLOT_COLOR =  'black' #'#1f77b4'
+GENERATED_PLOT_COLORS = ['#ff7f0e',
+                         '#2ca02c',
+                         '#d62728',
+                         '#9467bd',
+                         '#8c564b',
+                         '#e377c2',
+                         '#7f7f7f',
+                         '#bcbd22',
+                         '#17becf']
+
 def plot_unconditional_metrics(datapath,
                                voxel_size_um=None,
                                min_porosity=-np.inf,
