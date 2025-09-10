@@ -10,6 +10,67 @@ try:
     _LETTUCE_IMPORTED = True
 except ImportError:
     warnings.warn("Could not import lettuce. Some functionality may be limited.")
+    def make_mock_extension():
+        """Create mock lettuce classes when the real package cannot be imported"""
+        class MockStencil:
+            def __init__(self):
+                self.d = 2  # Default to 2D
+                self.e = torch.zeros((9, 2))  # Mock stencil vectors for D2Q9
+
+        class D2Q9(MockStencil):
+            pass
+
+        class D3Q19(MockStencil):
+            def __init__(self):
+                super().__init__()
+                self.d = 3
+                self.e = torch.zeros((19, 3))  # Mock stencil vectors for D3Q19
+
+        class Boundary:
+            pass
+
+        class BGKCollision:
+            def __init__(self, tau):
+                self.tau = tau
+
+        class Context:
+            def __init__(self, device, use_native=False):
+                self.device = device
+                self.use_native = use_native
+            
+            def convert_to_tensor(self, arr, dtype=None):
+                return torch.as_tensor(arr, dtype=dtype, device=self.device)
+                
+            def convert_to_ndarray(self, tensor):
+                return tensor.cpu().numpy() if isinstance(tensor, torch.Tensor) else tensor
+
+        class Simulation:
+            def __init__(self, flow, collision, reporter):
+                self.flow = flow
+                self.collision = collision
+                self.reporter = reporter
+
+        class ExtFlow:
+            def __init__(self, context, resolution, reynolds_number, mach_number, stencil, equilibrium):
+                self.context = context
+                self.resolution = resolution
+                self.reynolds_number = reynolds_number
+                self.mach_number = mach_number
+                self.stencil = stencil
+                self.equilibrium = equilibrium
+
+        return type('MockLettuce', (), {
+            'D2Q9': D2Q9,
+            'D3Q19': D3Q19,
+            'Boundary': Boundary,
+            'BGKCollision': BGKCollision,
+            'Context': Context,
+            'Simulation': Simulation,
+            'ExtFlow': ExtFlow
+        })
+
+    if not _LETTUCE_IMPORTED:
+        lt = make_mock_extension()
 
 
 class PressureDropBC(lt.Boundary):
