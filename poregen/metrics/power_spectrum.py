@@ -6,8 +6,6 @@ import joblib
 import torch
 import numpy as np
 from scipy import fftpack
-from tslearn.clustering import TimeSeriesKMeans
-from tslearn.preprocessing import TimeSeriesScalerMeanVariance
 
 
 def calculate_3d_radial_spectrum(cubes, window_ratio=0.95, sigma=2.0):
@@ -120,6 +118,12 @@ def cluster_spectra(spectra_data, n_clusters=2, random_state=42):
     dict
         Contains clustering results and analysis
     """
+    try:
+        from tslearn.clustering import TimeSeriesKMeans
+        from tslearn.preprocessing import TimeSeriesScalerMeanVariance
+    except ImportError:
+        raise ImportError("tslearn is not installed. Please install it using `pip install tslearn`")
+
     # Prepare data for clustering
     # We'll stack all spectra into a 3D array: [n_samples, n_timestamps, n_features]
     all_spectra = []

@@ -1,6 +1,7 @@
 # local package
 # -e .
 
+numpy<2.0
 torch
 torchvision
 einops
