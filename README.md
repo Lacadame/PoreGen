@@ -7,7 +7,12 @@ Neural networks for porous media
 
 For a tutorial, see notebooks/tutorials/0001-basic-usage.ipynb.
 
+--------
+Along the development of this project, we've used extensively the following resources:
 
+The Eleven Sandstones database at Digital Rocks Portal, found at [https://www.digitalrocksportal.org/projects/317](https://www.digitalrocksportal.org/projects/317), which is made available under the ODC Attribution License.
+
+The Micro-CT Images and Networks, found at [https://www.imperial.ac.uk/earth-science/research/research-groups/pore-scale-modelling/micro-ct-images-and-networks/](https://www.imperial.ac.uk/earth-science/research/research-groups/pore-scale-modelling/micro-ct-images-and-networks/), kindly provided freely available by Professor Martin Blunt and the Pore-Scale Modelling and Imaging Group at Imperial College London.
 ==============================
 
 Project Organization

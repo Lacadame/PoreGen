@@ -1,3 +1,5 @@
+from typing import Any
+
 import diffsci.models
 import diffsci.models.nets.autoencoderldm3d
 
@@ -37,7 +39,12 @@ def get_single_embedding(embedding_type, embedding_kwargs, dembed):
     return embed
 
 
-def get_model(cfg):
+def get_model(cfg: dict[str, Any]) -> dict[str, Any]:
+    """
+        Returns a dict with keys 'model' and 'autoencoder'.
+        'model' contains a PUNetG or PUNetGCond model
+        'autoencoder' contains an autoencoder model or None
+    """
     model_type = cfg['type']
     items = dict()
     if model_type == 'PUNetG':
@@ -57,7 +64,7 @@ def get_model(cfg):
         channel_conditional_items = model_params.pop('channel_conditional_items', None)
 
         if channel_conditional_items:
-            raise NotImplementedError
+            raise NotImplementedError("Channel conditional items are not implemented in get_model")
             model = diffsci.models.PUNetGCond(punetg_config,
                                               conditional_embedding=embed,
                                               channel_conditional_items=channel_conditional_items,
@@ -83,6 +90,44 @@ def get_model(cfg):
             ddconfig = diffsci.models.nets.autoencoderldm3d.ddconfig(
                 resolution=autoencoder_cfg['resolution'],
                 has_mid_attn=autoencoder_cfg.get('has_mid_attn', False)
+            )
+            vae_module = diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
+                checkpoint_path,
+                ddconfig=ddconfig,
+                lossconfig=lossconfig
+            )
+            vae_module.eval()
+        else:
+            raise ValueError(f"Unsupported autoencoder type: {autoencoder_type}")
+    else:
+        vae_module = None
+
+    items['autoencoder'] = vae_module
+    return items
+
+
+def get_autoencoder(config: dict[str, Any]):
+    """
+    Load an autoencoder model based on the provided configuration.
+    
+    Args:
+        config: Configuration dictionary for the autoencoder
+        
+    Returns:
+        dict: Dictionary containing the autoencoder model
+    """
+    items = {}
+    
+    if config:
+        autoencoder_type = config['type']
+        if autoencoder_type == 'AutoencoderKL':
+            checkpoint_path = config['checkpoint_path']
+            lossconfig = diffsci.models.nets.autoencoderldm3d.lossconfig(
+                kl_weight=config.get('kl_weight', 1e-4)
+            )
+            ddconfig = diffsci.models.nets.autoencoderldm3d.ddconfig(
+                resolution=config['resolution'],
+                has_mid_attn=config.get('has_mid_attn', False)
             )
             vae_module = diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
                 checkpoint_path,

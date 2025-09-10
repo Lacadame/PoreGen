@@ -2,6 +2,12 @@ import numpy as np
 import scipy.stats
 
 
+class AttrDict(dict):
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+
 def get_minibatch_sizes(n: int,
                         b: int
                         ) -> list[int]:

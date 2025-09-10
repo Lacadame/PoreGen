@@ -12,6 +12,10 @@ import porespy
 
 from poregen.utils import inverse_cdf_histogram
 
+"""
+Deprecated
+"""
+
 
 class BinaryPorousImageMetrics(object):
     def __init__(self):

@@ -1,0 +1,7 @@
+doing: null
+done:
+- /home/ubuntu/repos/PoreGen/configs/20250611-bps-ldm-bentheimer64.yaml
+- /home/ubuntu/repos/PoreGen/configs/20250611-bps-ldm-doddington64.yaml
+- /home/ubuntu/repos/PoreGen/configs/20250611-bps-ldm-estaillades64.yaml
+- /home/ubuntu/repos/PoreGen/configs/20250611-bps-ldm-ketton64.yaml
+on_queue: []

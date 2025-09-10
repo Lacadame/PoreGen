@@ -6,5 +6,6 @@ from .binary_datasets import (load_binary_from_eleven_sandstones,
                               VoxelToSlicesDataset,
                               SequenceOfVoxelsToSlicesDataset,
                               VoxelToSubvoxelDataset,
-                              SequenceOfVoxelsToSubvoxelDataset)
+                              SequenceOfVoxelsToSubvoxelDataset,
+                              VoxelToSubvoxelSequentialDataset)
 from .binary_datamodule import get_binary_datamodule

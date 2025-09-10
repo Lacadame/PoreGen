@@ -1,10 +1,19 @@
 import warnings
-from typing import Callable, List, Union, Tuple
+from typing import Callable, List, Union, Tuple, Literal
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms.v2 as transforms
+
+from . import binary_transforms
+
+
+TransformTypesStr = Literal['mirror', 'plane_mirror']
+
+
+def get_standard_binary_transforms(dimension: Literal[2, 3] = 2) -> torch.nn.Module:
+    return binary_transforms.get_mirror_transforms(dimension)
 
 
 def reduce_tensor(tensor: torch.Tensor,
@@ -32,27 +41,23 @@ def load_porespy_generated(path: str) -> np.ndarray:
     return np.load(path).astype(np.uint8)
 
 
-def get_standard_binary_transforms() -> transforms.Transform:
-    return transforms.Compose([
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomVerticalFlip(p=0.5)
-    ])
-
-
 class BaseVoxelDataset(Dataset):
+    output_dim: Literal[2, 3] = 2
+
     def __init__(
         self,
         voxels: Union[np.ndarray, List[np.ndarray]],
         subslice: Union[int, List[int]] = 64,
         dataset_size: int = 34560,
         voxel_downscale_factor: int = 1,
-        transform: bool = False,
+        transform: None | bool | torch.nn.Module | TransformTypesStr = False,
         feature_extractor: Callable = None,
         center: bool = False,
         invert: bool = False,
         image_size: Union[int, List[int]] = None,
-        pool_mode: str = 'avg'
-    ):
+        pool_mode: str = 'avg',
+        return_as_dict: bool = False
+    ):  
         if image_size is not None:
             warnings.warn("'image_size' is deprecated, use 'subslice' instead",
                           DeprecationWarning)
@@ -77,6 +82,28 @@ class BaseVoxelDataset(Dataset):
         self.feature_extractor = feature_extractor
         self.center = center
         self.invert = invert
+        self.return_as_dict = return_as_dict
+        self.transform = self.set_transform(transform)
+
+    def set_transform(self, transform: bool | torch.nn.Module | TransformTypesStr) -> torch.nn.Module:
+        if transform is None:
+            return None
+        elif isinstance(transform, bool):
+            warnings.warn("type 'bool' for 'transform' is deprecated, use a torch.nn.Module or a string")
+            if transform:
+                warnings.warn("transform=True will be read as transform='standard'")
+                transform = binary_transforms.get_mirror_transforms(self.output_dim)
+            else:
+                warnings.warn("transform=False will be read as transform=None")
+                transform = None
+        elif isinstance(transform, str):
+            if transform == 'mirror':
+                transform = binary_transforms.get_mirror_transforms(self.output_dim)
+            elif transform == "plane_mirror":
+                transform = binary_transforms.get_plane_mirror_transforms(self.output_dim)
+            else:
+                raise ValueError(f"Invalid transform type: {transform}")
+        return transform
 
     def is_3d(self) -> bool:
         return len(self.voxels[0].shape) == 3
@@ -89,8 +116,7 @@ class BaseVoxelDataset(Dataset):
 
     def process_crop(self, crop: torch.Tensor) -> torch.Tensor:
         if self.transform:
-            transform = get_standard_binary_transforms()
-            crop = transform(crop)
+            crop = self.transform(crop)
         if self.invert:
             crop = 1 - crop
         if self.center:
@@ -103,6 +129,8 @@ class BaseVoxelDataset(Dataset):
 
 
 class VoxelToSlicesDataset(BaseVoxelDataset):
+    output_dim: Literal[2, 3] = 2
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cropper = transforms.RandomCrop(self.subslice[:2])
@@ -117,11 +145,19 @@ class VoxelToSlicesDataset(BaseVoxelDataset):
 
         if self.feature_extractor:
             y = self.feature_extractor(x)
-            return x, y
-        return x
+            if self.return_as_dict:
+                return {'x': x, 'y': y}
+            else:
+                return x, y
+        elif self.return_as_dict:
+            return {'x': x}
+        else:
+            return x
 
 
 class VoxelToSubvoxelDataset(BaseVoxelDataset):
+    output_dim: Literal[2, 3] = 2
+
     def __getitem__(self, idx: int) -> Union[torch.Tensor,
                                              Tuple[torch.Tensor, torch.Tensor]]:
         voxel = self.get_random_voxel()
@@ -134,7 +170,69 @@ class VoxelToSubvoxelDataset(BaseVoxelDataset):
 
         if self.feature_extractor:
             y = self.feature_extractor(crop)
-            return crop, y
+            if self.return_as_dict:
+                return {'x': crop, 'y': y}
+            else:
+                return crop, y
+        elif self.return_as_dict:
+            return {'x': crop}
+        else:
+            return crop
+
+
+class VoxelToSubvoxelSequentialDataset(BaseVoxelDataset):
+    """
+    Sequential, stride-controlled sub-voxel sampler.
+    Returns None if idx ≥ total number of admissible sub-voxels.
+    """
+    output_dim: Literal[2, 3] = 2
+
+    def __init__(self, stride: int = 1, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stride = stride
+
+        self.starts_per_axis = [
+            list(range(0, dim - sub + 1, stride))
+            for dim, sub in zip(self.voxels[0].shape, self.subslice)
+        ]
+        print('starts_per_axis:', self.starts_per_axis)
+        self.per_voxel = np.prod([len(ax) for ax in self.starts_per_axis])
+        self.dataset_size = self.per_voxel * len(self.voxels)
+        print('Dataset_size:', self.dataset_size)
+
+    def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if idx >= self.dataset_size:
+            return None
+
+        # Decode voxel and coordinate indices
+        voxel_idx = idx // self.per_voxel
+        within_voxel_idx = idx % self.per_voxel
+        voxel = self.voxels[voxel_idx]
+
+        # Calculate grid dimensions
+        nx = len(self.starts_per_axis[-1])  # x-axis
+        ny = len(self.starts_per_axis[-2])  # y-axis
+
+        # Decode 3D coordinates from linear index
+        z_lin = within_voxel_idx // (ny * nx)
+        rem = within_voxel_idx % (ny * nx)
+        y_lin = rem // nx
+        x_lin = rem % nx
+
+        # Get starting coordinates for each axis
+        starts = (
+            self.starts_per_axis[0][z_lin],
+            self.starts_per_axis[1][y_lin],
+            self.starts_per_axis[2][x_lin],
+        )
+
+        # Extract and process the subvoxel
+        slices = tuple(slice(s, s + sub) for s, sub in zip(starts, self.subslice))
+        crop = voxel[slices].unsqueeze(0)
+        crop = self.process_crop(crop)
+
+        if self.feature_extractor is not None:
+            return crop, self.feature_extractor(crop)
         return crop
 
 
