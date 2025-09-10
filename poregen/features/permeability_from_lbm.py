@@ -194,7 +194,8 @@ class PorousMedium(lt.ExtFlow):
 
     def make_resolution(self, resolution, stencil=None):
         if isinstance(resolution, int):
-            return [resolution] * (stencil.d or self.stencil.d)
+            stencil_d = stencil.d if stencil is not None else self.stencil.d
+            return [resolution] * stencil_d
         else:
             return resolution
 
@@ -281,26 +282,34 @@ class PorousMedium(lt.ExtFlow):
 def pad_with_zeros(subsample, buffer_size=20):
     """
     Create a padded version of subsample with buffer_size of zeros on all sides.
+    Works for both 2D and 3D arrays.
 
     Args:
-        subsample: The 3D array to pad
+        subsample: The 2D or 3D array to pad
         buffer_size: Number of zeros to pad on each side (default: 20)
 
     Returns:
         padded_subsample: The padded array
     """
-    # Create a padded version of subsample with buffer_size of zeros on all sides
-    padded_subsample = np.zeros((subsample.shape[0] + 2 * buffer_size,
-                                 subsample.shape[1] + 2 * buffer_size,
-                                 subsample.shape[2] + 2 * buffer_size),
-                                dtype=subsample.dtype)
+    if subsample.ndim == 2:
+        # 2D case
+        padded_subsample = np.zeros((subsample.shape[0] + 2 * buffer_size,
+                                     subsample.shape[1] + 2 * buffer_size),
+                                    dtype=subsample.dtype)
+        padded_subsample[buffer_size:-buffer_size,
+                         buffer_size:-buffer_size] = subsample
+    elif subsample.ndim == 3:
+        # 3D case
+        padded_subsample = np.zeros((subsample.shape[0] + 2 * buffer_size,
+                                     subsample.shape[1] + 2 * buffer_size,
+                                     subsample.shape[2] + 2 * buffer_size),
+                                    dtype=subsample.dtype)
+        padded_subsample[buffer_size:-buffer_size,
+                         buffer_size:-buffer_size,
+                         buffer_size:-buffer_size] = subsample
+    else:
+        raise ValueError(f"Unsupported number of dimensions: {subsample.ndim}. Only 2D and 3D are supported.")
 
-    # Insert the original data in the middle of the padded array
-    padded_subsample[buffer_size:-buffer_size,
-                     buffer_size:-buffer_size,
-                     buffer_size:-buffer_size] = subsample
-
-    # Now padded_subsample has buffer_size of zeros at the beginning and end of all axes
     return padded_subsample
 
 
@@ -316,13 +325,13 @@ def permeability_from_lbm(subsample,
                           avgs_per_check=20,
                           epsilon=1e-1,
                           savename=None,
-                          direction=[1, 0, 0]):
+                          direction=None):
     """
-    Calculate permeability from a 3D binary subsample using Lattice Boltzmann Method,
+    Calculate permeability from a 2D or 3D binary subsample using Lattice Boltzmann Method,
     using pressure drop boundary conditions.
 
     Args:
-        subsample: 3D binary numpy array representing the porous medium (1=solid, 0=void)
+        subsample: 2D or 3D binary numpy array representing the porous medium (1=solid, 0=void)
         grid_size_pu: Grid size in physical units (default: 2.25e-6)
         mach_number: Mach number for simulation (default: 0.02)
         reynolds_number: Reynolds number for simulation (default: 0.1)
@@ -334,7 +343,10 @@ def permeability_from_lbm(subsample,
         avgs_per_check: Number of iterations per check (default: 20)
         epsilon: Convergence criterion percentage (default: 1e-1)
         savename: Path to save velocity field (default: None)
-        direction: Direction of flow [x,y,z] with one non-zero value (default: [1, 0, 0])
+        direction: Direction of flow with one non-zero value. 
+                  For 2D: [x,y] (default: [1, 0])
+                  For 3D: [x,y,z] (default: [1, 0, 0])
+                  If None, defaults are used based on dimension
 
     Returns:
         permeability: Calculated permeability value
@@ -349,9 +361,25 @@ def permeability_from_lbm(subsample,
     if not np.array_equal(subsample, subsample.astype(bool)):
         subsample = subsample.astype(bool)
 
-    # Setup context and stencil
+    # Determine dimensionality and set up appropriate stencil and direction
+    ndim = subsample.ndim
+    if ndim == 2:
+        if direction is None:
+            direction = [1, 0]  # Default direction for 2D
+        elif len(direction) != 2:
+            raise ValueError("For 2D subsample, direction must have exactly 2 elements")
+        stencil = lt.D2Q9()
+    elif ndim == 3:
+        if direction is None:
+            direction = [1, 0, 0]  # Default direction for 3D
+        elif len(direction) != 3:
+            raise ValueError("For 3D subsample, direction must have exactly 3 elements")
+        stencil = lt.D3Q19()
+    else:
+        raise ValueError(f"Unsupported number of dimensions: {ndim}. Only 2D and 3D are supported.")
+
+    # Setup context
     context = lt.Context(torch.device(device), use_native=False)
-    stencil = lt.D3Q19()
 
     cs = 0.5773502691896258
     rho_drop = subsample.shape[0] / cs**2 * acceleration
@@ -404,9 +432,11 @@ def permeability_from_lbm(subsample,
             break
 
     u_x_mean = u_lu_masked_cropped[ind].mean()
-    slice_indices = [slice(None), slice(None), slice(None)]
+    
+    # Create slice indices based on dimensionality
+    slice_indices = [slice(None)] * ndim
     slice_indices[ind] = -1
-    u_surface = u_lu_masked_cropped[tuple(slice_indices)]
+    u_surface = u_lu_masked_cropped[tuple([slice(None)] + slice_indices)]
     u_surface_mean = u_surface[ind].mean()
 
     # Calculate permeability

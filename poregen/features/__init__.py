@@ -16,5 +16,10 @@ from . import basicmetrics
 from .feature_extractors import (make_feature_extractor,
                                  make_composite_feature_extractor,
                                  AVAILABLE_EXTRACTORS,
-                                 EXTRACTORS_RETURN_KEYS_MAP)
+                                 EXTRACTORS_RETURN_KEYS_MAP,
+                                 FeatureExtractorManager,
+                                 BaseExtractor,
+                                 InputType,
+                                 DataDimension,
+                                 )
 from .dataset_variance import diagonal_variance
