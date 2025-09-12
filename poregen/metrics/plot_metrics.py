@@ -176,9 +176,14 @@ def plot_unconditional_metrics_group(generated_datapaths,
     generated_surface_area_densities_dict = {name: extract_property(stats, 'surface_area_density')[0]
                                            for name, stats in generated_stats_dict.items()}
     valid_surface_area_densities, _ = extract_property(valid_stats, 'surface_area_density')
+
     generated_log_momenta_dict = {name: extract_property(stats, 'log_momenta')[0]
                                  for name, stats in generated_stats_dict.items()}
     valid_log_momenta, _ = extract_property(valid_stats, 'log_momenta')
+
+    generated_euler_dict = {name: extract_property(stats, 'euler_number_density')[0]
+                             for name, stats in generated_stats_dict.items()}
+    valid_euler, _ = extract_property(valid_stats, 'euler_number_density')
 
     ind_dict = {name: (porosity > min_porosity).flatten() & (porosity < max_porosity).flatten()
                 for name, porosity in porosity_for_filter_dict.items()}
@@ -226,6 +231,9 @@ def plot_unconditional_metrics_group(generated_datapaths,
     generated_log_momenta_dict = {name: momenta[ind_dict[name]]
                                  for name, momenta in generated_log_momenta_dict.items()}
 
+    generated_euler_dict = {name: eulers[ind_dict[name]]
+                             for name, eulers in generated_euler_dict.items()}      #TODO: convert to right units
+
     # Unit conversion
     # Permeability is already in Darcy
     for name in generated_surface_area_densities_dict:
@@ -256,38 +264,44 @@ def plot_unconditional_metrics_group(generated_datapaths,
     if which_porosity == 'effective':
         generated_data_dict = {name: [generated_effective_porosities_dict[name],
                                     generated_surface_area_densities_dict[name],
+                                    generated_euler_dict[name],
                                     generated_log_mean_pore_size_dict[name]]
                              for name in generated_datapaths}
         valid_data = [valid_effective_porosities,
                      valid_surface_area_densities,
+                     valid_euler,
                      valid_log_mean_pore_size]
-        properties = ['effective_porosity', 'surface_area_density']
-        labels = ['Effective Porosity', 'Surface Area Density']
-        units = [r"$\phi$", r"$1/\mu m$"]
+        properties = ['effective_porosity', 'surface_area_density', 'euler_number_density']
+        labels = ['Effective Porosity', 'Surface Area Density', 'Euler Number Density']
+        units = [r"$\phi$", r"$1/\mu m$", r"$1/\mu m^3$"]
     elif which_porosity == 'raw':
         generated_data_dict = {name: [generated_raw_porosities_dict[name],
                                     generated_surface_area_densities_dict[name],
+                                    generated_euler_dict[name],
                                     generated_log_mean_pore_size_dict[name]]
                              for name in generated_datapaths}
         valid_data = [valid_raw_porosities,
                      valid_surface_area_densities,
+                     valid_euler,
                      valid_log_mean_pore_size]
-        properties = ['porosity', 'surface_area_density']
-        labels = ['Porosity', 'Surface Area Density']
-        units = [r"$\phi$", r"$1/\mu m$"]
+        properties = ['porosity', 'surface_area_density', 'euler_number_density']
+        labels = ['Porosity', 'Surface Area Density', 'Euler Number Density']
+        units = [r"$\phi$", r"$1/\mu m$", r"$1/\mu m^3$"]
     else:  # both
         generated_data_dict = {name: [generated_raw_porosities_dict[name],
                                     generated_effective_porosities_dict[name],
                                     generated_surface_area_densities_dict[name],
+                                    generated_euler_dict[name],
                                     generated_log_mean_pore_size_dict[name]]
                              for name in generated_datapaths}
         valid_data = [valid_raw_porosities,
                      valid_effective_porosities,
                      valid_surface_area_densities,
+                     valid_euler,
                      valid_log_mean_pore_size]
-        properties = ['porosity', 'effective_porosity', 'surface_area_density']
-        labels = ['Porosity', 'Effective Porosity', 'Surface Area Density']
-        units = [r"$\phi$", r"$\phi$", r"$1/\mu m$"]
+        properties = ['porosity', 'effective_porosity', 'surface_area_density', 'euler_number_density']
+        labels = ['Porosity', 'Effective Porosity', 'Surface Area Density', 'Euler Number Density']
+        units = [r"$\phi$", r"$\phi$", r"$1/\mu m$", r"$1/\mu m^3$"]
 
     if use_log_properties:
         properties.append('log_mean_pore_size')
@@ -1058,7 +1072,7 @@ def plot_kde(generated_data_dict,
             hellinger_dist = hellinger_distance_kde_mc(val.flatten(), 
                                                      gen.flatten(), 
                                                      n_samples=10000)
-            if label in ['Porosity', 'Surface Area Density', 
+            if label in ['Porosity', 'Surface Area Density', 'Euler Number Density',
                         'Mean Pore Size', 'Permeability']:
                 rel_error = mean_relative_error(val.flatten(), gen.flatten())
             else:
