@@ -203,9 +203,10 @@ def extract_porosity(slice):
 
 
 def extract_slice_porosities(voxel):
-    porosity = torch.tensor([extract_porosity(voxel[i])['porosity'] for i in range(voxel.shape[0])], dtype=torch.float)
-    dict = {'slice': torch.arange(voxel.shape[0]), 'porosity': porosity}
-    print(voxel.shape, dict)
+    porosity = torch.tensor(
+        [extract_porosity(voxel[..., i])['porosity'] for i in range(voxel.shape[-1])],
+        dtype=torch.float)
+    dict = {'slice': torch.arange(voxel.shape[-1]), 'porosity': porosity}
     return dict
 
 
