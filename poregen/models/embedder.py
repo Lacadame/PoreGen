@@ -32,9 +32,11 @@ class PositionalEncoding1d(torch.nn.Module):
         }
 
 
-class TwoPointCorrelationEmbedder(torch.nn.Module):
+class FunctionEmbedder(torch.nn.Module):
     def __init__(self,
                  dembed,
+                 arg: str,
+                 values: str,
                  reduction: str | None = None,
                  scale: float = 30.0):
         super().__init__()
@@ -44,6 +46,8 @@ class TwoPointCorrelationEmbedder(torch.nn.Module):
                                                                     scale)
         self.reduction = reduction
         self.scale = scale
+        self.arg = arg
+        self.values = values
 
     def forward(self, data):
         """
@@ -51,20 +55,19 @@ class TwoPointCorrelationEmbedder(torch.nn.Module):
         ----------
         data: dict
             The input data dictionary, containing:
-            dist : torch.Tensor of shape (..., seq_len)
-                The distance between two points
-            prob : torch.Tensor of shape (..., seq_len)
-                The probability of the distance
-
+            arg : torch.Tensor of shape (..., seq_len)
+                The argument of the function
+            values : torch.Tensor of shape (..., seq_len)
+                The values of the function
         Returns
         -------
         x : torch.Tensor of shape (..., dembed) or (..., seq_len, dembed)
             The embedded tensor
         """
-        dist = data['tpc_dist']
-        prob = data['tpc_prob']
-        x1 = self.pos_encoder(dist)
-        x2 = self.gaussian_proj(-torch.log(prob+1e-6))
+        arg = data[self.arg]
+        values = data[self.values]
+        x1 = self.pos_encoder(arg)
+        x2 = self.gaussian_proj(-torch.log(values+1e-6))
         x = x1 + x2
         if self.reduction == 'mean':
             x = x.mean(dim=-2)
@@ -80,11 +83,11 @@ class TwoPointCorrelationEmbedder(torch.nn.Module):
         }
 
 
-class TwoPointCorrelationTransformer(torch.nn.Module):
-    def __init__(self, tpc_embedder, nhead=4,
+class FunctionTransformer(torch.nn.Module):
+    def __init__(self, func_embedder, nhead=4,
                  ffn_expansion=4, num_layers=2):
         super().__init__()
-        self.embedder = tpc_embedder
+        self.embedder = func_embedder
         self.ffn_expansion = ffn_expansion
         self.nhead = nhead
         self.num_layers = num_layers
@@ -230,95 +233,6 @@ class PorosityEmbedder(torch.nn.Module):
         }
 
 
-class PorosityVectorEmbedder(torch.nn.Module):
-    def __init__(self, dembed, nhead=4,
-                 ffn_expansion=4, num_layers=2, scale=30.0):
-        super().__init__()
-        self.dembed = dembed
-        self.nhead = nhead
-        self.ffn_expansion = ffn_expansion
-        self.num_layers = num_layers
-        self.scale = scale
-        self.pos_encoder = PositionalEncoding1d(dembed)
-        self.gaussian_proj = commonlayers.GaussianFourierProjection(dembed, scale)
-        self.encoder = torch.nn.TransformerEncoder(
-            torch.nn.TransformerEncoderLayer(
-                d_model=self.dembed,
-                nhead=nhead,
-                dim_feedforward=self.dembed*ffn_expansion,
-                batch_first=True),
-            num_layers=num_layers
-        )
-
-    def forward(self, data):
-        """
-        Parameters
-        ----------
-        data: dict
-            The input data dictionary, containing:
-            porosity : torch.Tensor of shape (..., seq_len)
-                The vector of porosity values
-
-        Returns
-        -------
-        x : torch.Tensor of shape (..., dembed)
-            The embedded tensor
-        """
-        porosity_vector = data['porosity']  # [..., seq_len]
-        seq_len = porosity_vector.shape[-1]
-        positions = torch.arange(seq_len, device=porosity_vector.device)
-        pos_encoding = self.pos_encoder(positions)  # [seq_len, dembed]
-
-        porosity_encoding = self.gaussian_proj(porosity_vector)  # [..., seq_len, dembed]
-        x = porosity_encoding + pos_encoding
-        x = self.encoder(x)
-        return x.mean(dim=1)
-
-    def export_description(self):
-        return {
-            'dembed': self.dembed,
-            'nhead': self.nhead,
-            'ffn_expansion': self.ffn_expansion,
-            'num_layers': self.num_layers,
-            'scale': self.scale
-        }
-
-
-class PorosityVectorTransformer(torch.nn.Module):
-    def __init__(self, porosity_vector_embedder, nhead=4,
-                 ffn_expansion=4, num_layers=2):
-        super().__init__()
-        self.embedder = porosity_vector_embedder
-        self.ffn_expansion = ffn_expansion
-        self.nhead = nhead
-        self.num_layers = num_layers
-        self.encoder = torch.nn.TransformerEncoder(
-            torch.nn.TransformerEncoderLayer(
-                d_model=self.embedder.dembed,
-                nhead=nhead,
-                dim_feedforward=self.embedder.dembed*ffn_expansion,
-                batch_first=True),
-            num_layers=num_layers
-        )
-
-    def forward(self, x):
-        x = self.embedder(x)
-        x = self.encoder(x)
-        print(x)
-        return x
-
-    def export_description(self):
-        return {
-            'embedder': self.embedder.export_description(),
-            'encoder': {
-                'd_model': self.embedder.dembed,
-                'nhead': self.nhead,
-                'ffn_expansion': self.ffn_expansion,
-                'num_layers': self.num_layers
-            }
-        }
-
-
 class MomentaEmbedder(torch.nn.Module):
     def __init__(self,
                  nmax,
@@ -387,6 +301,54 @@ class CompositeEmbedder(torch.nn.Module):
         return d
 
 
+# Replace the old TwoPointCorrelationEmbedder and TwoPointCorrelationTransformer classes with:
+
+class TwoPointCorrelationEmbedder(FunctionEmbedder):
+    def __init__(self,
+                 dembed,
+                 reduction: str | None = None,
+                 scale: float = 30.0):
+        # Call parent constructor with fixed arg and values for TPC
+        super().__init__(
+            dembed=dembed,
+            arg='tpc_dist',
+            values='tpc_prob',
+            reduction=reduction,
+            scale=scale
+        )
+
+
+class TwoPointCorrelationTransformer(FunctionTransformer):
+    def __init__(self, 
+                 tpc_embedder=None,
+                 dembed=None,
+                 nhead=4,
+                 ffn_expansion=4, 
+                 num_layers=2,
+                 reduction: str | None = None,
+                 scale: float = 30.0):
+        # Support both old API (passing tpc_embedder) and new API (creating embedder)
+        if tpc_embedder is not None:
+            # Backward compatibility: use provided embedder
+            embedder = tpc_embedder
+        elif dembed is not None:
+            # New API: create embedder automatically
+            embedder = TwoPointCorrelationEmbedder(
+                dembed=dembed,
+                reduction=reduction,
+                scale=scale
+            )
+        else:
+            raise ValueError("Either tpc_embedder or dembed must be provided")
+        
+        super().__init__(
+            func_embedder=embedder,
+            nhead=nhead,
+            ffn_expansion=ffn_expansion,
+            num_layers=num_layers
+        )
+
+
 def get_porosity_embedder(dembed, scale=30.0):
     return PorosityEmbedder(dembed, scale)
 
@@ -400,11 +362,24 @@ def get_tpc_transformer(dembed,
                         ffn_expansion=4,
                         num_layers=2,
                         scale: float = 30.0):
-    embedder = TwoPointCorrelationEmbedder(dembed, scale=scale)
-    transformer = TwoPointCorrelationTransformer(embedder,
-                                                 nhead=nhead,
-                                                 ffn_expansion=ffn_expansion,
-                                                 num_layers=num_layers)
+    embedder = FunctionEmbedder(dembed, arg='tpc_dist', values='tpc_prob', scale=scale)
+    transformer = FunctionTransformer(embedder,
+                                      nhead=nhead,
+                                      ffn_expansion=ffn_expansion,
+                                      num_layers=num_layers)
+    return transformer
+
+
+def get_porosity_map_transformer(dembed,
+                                 nhead=4,
+                                 ffn_expansion=4,
+                                 num_layers=2,
+                                 scale=30.0):
+    embedder = FunctionEmbedder(dembed, arg='slice', values='porosity', scale=scale)
+    transformer = FunctionTransformer(embedder,
+                                      nhead=nhead,
+                                      ffn_expansion=ffn_expansion,
+                                      num_layers=num_layers)
     return transformer
 
 
@@ -419,10 +394,4 @@ def get_psd_transformer(dembed,
                                           nhead=nhead,
                                           ffn_expansion=ffn_expansion,
                                           num_layers=num_layers)
-    return transformer
-
-
-def get_porosity_vector_transformer(dembed, nhead=4, ffn_expansion=4, num_layers=2, scale=30.0):
-    embedder = PorosityVectorEmbedder(dembed, scale=scale)
-    transformer = PorosityVectorTransformer(embedder, nhead=nhead, ffn_expansion=ffn_expansion, num_layers=num_layers)
     return transformer
