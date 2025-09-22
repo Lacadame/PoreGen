@@ -78,30 +78,6 @@ class PorosityExtractor(BaseExtractor):
         return {"porosity": porosity}
 
 
-class PorosityVectorExtractor(BaseExtractor):
-    """Extract porosity vector from 3D volume (slice-wise)."""
-
-    @property
-    def name(self) -> str:
-        return "porosity_vector"
-
-    @property
-    def output_keys(self) -> List[str]:
-        return ["porosity"]
-
-    @property
-    def supported_dimensions(self) -> DataDimension:
-        return DataDimension.THREE_D
-
-    def extract(self, data: torch.Tensor) -> Dict[str, torch.Tensor]:
-        porosity_extractor = PorosityExtractor()
-        porosity = torch.tensor([
-            porosity_extractor.extract(data[i])["porosity"]
-            for i in range(data.shape[0])
-        ], dtype=torch.float)
-        return {"porosity": porosity}
-
-
 class SlicePorosityExtractor(BaseExtractor):
     """Extract porosity for each slice along the last dimension of a 3D volume."""
 
@@ -129,6 +105,37 @@ class SlicePorosityExtractor(BaseExtractor):
             "porosity": porosity
         }
 
+
+class SubvolumePorosityExtractor(BaseExtractor):
+    """Extract porosity along subvolumes of a partitioned 3D volume."""
+
+    @property
+    def name(self) -> str:
+        return "subvolume_porosity"
+
+    @property
+    def output_keys(self) -> List[str]:
+        return ["slice", "porosity"]
+
+    @property
+    def supported_dimensions(self) -> DataDimension:
+        return DataDimension.THREE_D
+
+    def extract(self, data: torch.Tensor, size) -> Dict[str, torch.Tensor]:
+        porosity_extractor = PorosityExtractor()
+        subvolumes = torch.stack([data[..., i:i+size, j:j+size, k:k+size] 
+                           for i in range(0, data.shape[-3], size)
+                           for j in range(0, data.shape[-2], size)
+                            for k in range(0, data.shape[-1], size)])
+        porosity = torch.tensor([
+                    porosity_extractor.extract(subvolumes[..., i, :, :, :, :])["porosity"]
+                    for i in range(subvolumes.shape[-5])
+        ], dtype=torch.float)
+
+        return {
+            "slice": torch.arange(subvolumes.shape[-5]),
+            "porosity": porosity
+        }
 
 class EffectivePorosityExtractor(BaseExtractor):
     """Extract effective porosity (connected pore space)."""
@@ -489,7 +496,6 @@ class FeatureExtractorRegistry:
         """Register all default extractors."""
         # Basic extractors
         self.register(PorosityExtractor)
-        self.register(PorosityVectorExtractor)
         self.register(EffectivePorosityExtractor)
         self.register(TwoPointCorrelationExtractor)
         self.register(PorosimetryExtractor)
@@ -497,6 +503,7 @@ class FeatureExtractorRegistry:
         self.register(EulerNumberDensityExtractor)
         self.register(PermeabilityExtractor)
         self.register(SlicePorosityExtractor)
+        self.register(SubvolumePorosityExtractor)
 
         # Slice extractors
         self.register(SliceExtractor, "slice_from_voxel")
