@@ -108,6 +108,9 @@ class SlicePorosityExtractor(BaseExtractor):
 
 class SubvolumePorosityExtractor(BaseExtractor):
     """Extract porosity along subvolumes of a partitioned 3D volume."""
+    def __init__(self, size: int = 8):
+        super().__init__()
+        self.size = size
 
     @property
     def name(self) -> str:
@@ -121,12 +124,13 @@ class SubvolumePorosityExtractor(BaseExtractor):
     def supported_dimensions(self) -> DataDimension:
         return DataDimension.THREE_D
 
-    def extract(self, data: torch.Tensor, size) -> Dict[str, torch.Tensor]:
+    def extract(self, data: torch.Tensor) -> Dict[str, torch.Tensor]:
         porosity_extractor = PorosityExtractor()
-        subvolumes = torch.stack([data[..., i:i+size, j:j+size, k:k+size] 
-                           for i in range(0, data.shape[-3], size)
-                           for j in range(0, data.shape[-2], size)
-                            for k in range(0, data.shape[-1], size)])
+        size = self.size
+        subvolumes = torch.stack([data[..., i:i+size, j:j+size, k:k+size]
+                                 for i in range(0, data.shape[-3], size)
+                                 for j in range(0, data.shape[-2], size)
+                                 for k in range(0, data.shape[-1], size)])
         porosity = torch.tensor([
                     porosity_extractor.extract(subvolumes[..., i, :, :, :, :])["porosity"]
                     for i in range(subvolumes.shape[-5])
@@ -136,6 +140,7 @@ class SubvolumePorosityExtractor(BaseExtractor):
             "slice": torch.arange(subvolumes.shape[-5]),
             "porosity": porosity
         }
+
 
 class EffectivePorosityExtractor(BaseExtractor):
     """Extract effective porosity (connected pore space)."""
