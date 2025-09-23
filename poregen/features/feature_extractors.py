@@ -354,9 +354,10 @@ class EulerNumberDensityExtractor(BaseExtractor):
 class PermeabilityExtractor(BaseExtractor):
     """Extract permeability using pore network modeling."""
 
-    def __init__(self, voxel_length: float = 2.25e-6, **kwargs):
+    def __init__(self, voxel_length: float = 2.25e-6, calculate_pc_curve: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.voxel_length = voxel_length
+        self.calculate_pc_curve = calculate_pc_curve
 
     @property
     def name(self) -> str:
@@ -374,10 +375,18 @@ class PermeabilityExtractor(BaseExtractor):
         from . import permeability_from_pnm
 
         try:
-            perm = permeability_from_pnm.calculate_permeability_from_pnm(data, self.voxel_length)
+            perm = permeability_from_pnm.calculate_permeability_from_pnm(
+                data,
+                self.voxel_length,
+                self.calculate_pc_curve
+            )
         except Exception:  # Could not calculate permeability
             perm = np.nan * np.ones(len(data.shape) - 1)
-        return {"permeability": torch.tensor(perm, dtype=torch.float)}
+        out = {"permeability": torch.tensor(perm['permeabilities'], dtype=torch.float)}
+        if self.calculate_pc_curve:
+            out['pc_curve'] = {'pc': torch.tensor(perm['pc_curve']['pc'], dtype=torch.float),
+                               'snwp': torch.tensor(perm['pc_curve']['snwp'], dtype=torch.float)}
+        return out
 
 
 class SliceExtractor(BaseExtractor):
