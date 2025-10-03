@@ -3,6 +3,8 @@ from typing import Literal
 import torch
 import torchvision.transforms.v2 as transforms
 
+from .cube_transforms import CubeSymmetry
+
 
 class RandomDimensionFlip(torch.nn.Module):
     def __init__(self, dim: int, p: float = 0.5):
