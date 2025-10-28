@@ -10,10 +10,10 @@ data:
   invert: false
   dimension: 3
   psplit: 0.8
-  path: ['/home/danilo/repos/PoreGen/saveddata/raw/imperial_college/Bentheimer_1000c_3p0035um.raw',
-        '/home/danilo/repos/PoreGen/saveddata/raw/imperial_college/Doddington_1000c_2p6929um.raw',
-        '/home/danilo/repos/PoreGen/saveddata/raw/imperial_college/Estaillades_1000c_3p31136um.raw',
-        '/home/danilo/repos/PoreGen/saveddata/raw/imperial_college/Ketton_1000c_3p00006um.raw']
+  path: ['/home/ubuntu/repos/PoreGen/saveddata/raw/imperial_college/Bentheimer_1000c_3p0035um.raw',
+        '/home/ubuntu/repos/PoreGen/saveddata/raw/imperial_college/Doddington_1000c_2p6929um.raw',
+        '/home/ubuntu/repos/PoreGen/saveddata/raw/imperial_college/Estaillades_1000c_3p31136um.raw',
+        '/home/ubuntu/repos/PoreGen/saveddata/raw/imperial_college/Ketton_1000c_3p00006um.raw']
 
 model:
   type: 'ldm'
@@ -41,4 +41,4 @@ training:
   devices: 6
 
 output:
-  folder: '/home/danilo/repos/PoreGen/savedmodels/production/20241029-bps-ldmvae-4imperial'
+  folder: '/home/ubuntu/repos/PoreGen/savedmodels/production/20241029-bps-ldmvae-4imperial'

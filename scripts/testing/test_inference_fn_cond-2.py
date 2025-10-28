@@ -12,11 +12,11 @@ def main():
     poregen.trainers.pore_eval(
         cfgpath,
         'best',
-        y=0.0,
+        y=0.035,
         nsamples=nsamples,
         maximum_batch_size=1,
-        device_id=6,
-        tag='0.0',
+        device_id=7,
+        tag='0.035',
         only_porosity=True)
 
     # poregen.trainers.pore_eval(
