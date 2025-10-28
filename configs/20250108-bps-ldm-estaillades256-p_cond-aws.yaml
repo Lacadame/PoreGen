@@ -11,7 +11,7 @@ data:
   transform: true
   dimension: 3
   psplit: 0.7
-  path: '/home/ubuntu/repos/PoreGen/saveddata/raw/imperial_college/Estaillades_1000c_3p31136um.raw'
+  path: '/home/danilo/repos/PoreGen/saveddata/raw/imperial_college/Estaillades_1000c_3p31136um.raw'
   voxel_size_um: 3.3
   feature_extractor: 'porosity'
 
@@ -50,7 +50,7 @@ model:
     channel_conditional_items: null
   autoencoder:
     type: 'AutoencoderKL'
-    checkpoint_path: '/home/ubuntu/repos/PoreGen/savedmodels/production/20241029-bps-ldmvae-4imperial/checkpoints/model-epoch=060-val_loss=0.002525.ckpt'
+    checkpoint_path: '/home/danilo/repos/PoreGen/savedmodels/production/20241029-bps-ldmvae-4imperial/checkpoints/model-epoch=060-val_loss=0.002525.ckpt'
     resolution: 256
     has_mid_attn: false
     kl_weight: 1e-4
@@ -83,4 +83,4 @@ training:
   vae_norm: 20
 
 output:
-  folder: '/home/ubuntu/repos/PoreGen/savedmodels/experimental/20250108-bps-ldm-estaillades256-p_cond-aws'
+  folder: '/home/danilo/repos/PoreGen/savedmodels/experimental/20250108-bps-ldm-estaillades256-p_cond-aws'

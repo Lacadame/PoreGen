@@ -4,7 +4,7 @@ import numpy as np
 from .snow2 import snow2
 
 
-def calculate_permeability_from_pnm(volume, voxel_length):
+def calculate_permeability_from_pnm(volume, voxel_length, calculate_pc_curve=False):
     # Convert volume to binary (assuming 0 is pore space)
     binary_volume = (1 - volume[0].long().numpy())
 
@@ -58,4 +58,25 @@ def calculate_permeability_from_pnm(volume, voxel_length):
         K = sf.rate(pores=pn.pores(f'{direction}min'))*(L/A)/dP*1e12  # Darcy
         permeabilities.append(K[0])
 
-    return np.array(permeabilities)
+    out = {'permeabilities': np.array(permeabilities)}
+    if calculate_pc_curve:
+        pn['throat.volume'] = pn['throat.cross_sectional_area'] * 0
+        hg = openpnm.phase.Mercury(network=pn)
+        f = openpnm.models.physics.capillary_pressure.washburn
+        hg.add_model(propname='throat.entry_pressure',
+                     model=f, 
+                     surface_tension='throat.surface_tension',
+                     contact_angle='throat.contact_angle',
+                     diameter='throat.diameter',)
+        mip = openpnm.algorithms.Drainage(network=pn, phase=hg)
+
+        inlets = ['xmin', 'xmax', 'ymin', 'ymax']
+        if volume.ndim == 3:
+            inlets = inlets + ['zmin', 'zmax']
+        mip.set_inlet_BC(pores=pn.pores(inlets))  # mercury invades from all sides
+        mip.run()
+
+        data = mip.pc_curve()
+        out['pc_curve'] = {'pc': data.pc, 'snwp': data.snwp}
+
+    return out

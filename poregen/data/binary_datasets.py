@@ -32,6 +32,7 @@ def load_binary_from_eleven_sandstones(path: str) -> np.ndarray:
 
     size = int(round(unshaped_voxel.shape[0] ** (1 / 3)))
     if size**3 != unshaped_voxel.shape[0]:
+        # print(unshaped_voxel.shape[0], size**3, size)
         raise ValueError('Voxel is not a cube.')
 
     return unshaped_voxel.reshape((size, size, size))
