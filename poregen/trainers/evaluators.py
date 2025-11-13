@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Callable
 
 import shutil
 import copy
@@ -121,7 +121,8 @@ def pore_eval(cfg_path,  # noqa: C901
               device_id: int = 0,
               image_size: None | int = None,
               filter_spectra: bool = False,
-              only_porosity: bool = False):
+              only_porosity: bool = False,
+              net_postprocessing: None | Callable = None):
     if only_porosity:
         warnings.warn("only_porosity is deprecated, use extractors=['porosity'] instead")
         extractors = ['porosity']
@@ -130,6 +131,10 @@ def pore_eval(cfg_path,  # noqa: C901
                                         checkpoint_path,
                                         load_data=True,
                                         image_size=image_size)
+    if net_postprocessing is not None:
+        module = loaded['trainer'].karras_module
+        module.model = net_postprocessing(module.model)
+        loaded['trainer'].karras_module = module
     try:
         voxel_size_um = loaded['datamodule'].voxel_size_um
     except Exception:

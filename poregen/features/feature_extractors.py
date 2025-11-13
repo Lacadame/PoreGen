@@ -381,11 +381,12 @@ class PermeabilityExtractor(BaseExtractor):
                 self.calculate_pc_curve
             )
         except Exception:  # Could not calculate permeability
-            perm = np.nan * np.ones(len(data.shape) - 1)
+            perm = {'permeabilities': np.nan, 'pc_curve': {'pc': np.nan, 'snwp': np.nan}}
         out = {"permeability": torch.tensor(perm['permeabilities'], dtype=torch.float)}
         if self.calculate_pc_curve:
-            out['pc_curve'] = {'pc': torch.tensor(perm['pc_curve']['pc'], dtype=torch.float),
-                               'snwp': torch.tensor(perm['pc_curve']['snwp'], dtype=torch.float)}
+            out['pc_curve'] = {
+                'pc': torch.tensor(perm['pc_curve']['pc'], dtype=torch.float),
+                'snwp': torch.tensor(perm['pc_curve']['snwp'], dtype=torch.float)}
         return out
 
 

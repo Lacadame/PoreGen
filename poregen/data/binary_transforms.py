@@ -48,3 +48,7 @@ def get_plane_mirror_transforms(dimension: Literal[2, 3] = 2) -> torch.nn.Module
         ])
     else:
         raise ValueError(f"Dimension {dimension} not supported")
+
+
+def get_cube_symmetry_transforms() -> torch.nn.Module:
+    return CubeSymmetry()

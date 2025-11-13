@@ -4,6 +4,16 @@ import numpy as np
 from .snow2 import snow2
 
 
+def extract_pnm(volume, voxel_length):
+    binary_volume = (1 - volume[0].long().numpy())
+    partitioning = snow2(
+        binary_volume,
+        voxel_size=voxel_length,
+    )
+    pn = openpnm.io.network_from_porespy(partitioning.network)
+    return pn
+
+
 def calculate_permeability_from_pnm(volume, voxel_length, calculate_pc_curve=False):
     # Convert volume to binary (assuming 0 is pore space)
     binary_volume = (1 - volume[0].long().numpy())
