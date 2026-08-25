@@ -52,51 +52,75 @@ class PoreVAETrainer:
         param_dict = {
             'kl_weight': kl_weight,
             'target': losstype,
-            'ddconfig_params': ddconfig_params
+            'ddconfig_params': ddconfig_params,
+            'embed_dim': int(self.model.get('embed_dim', 4)),
+            'geomodel_kwargs': self._geomodel_loss_kwargs(),
         }
         return param_dict
+
+    def _geomodel_loss_kwargs(self):
+        extra = self.train_config.get('geomodel_losses') or {}
+        if not extra:
+            return None
+        image_size = self.data_config.get('image_size', [128, 128, 32])
+        if isinstance(image_size, int):
+            volume_shape = [image_size] * 3
+        else:
+            volume_shape = [int(v) for v in image_size]
+        from poregen.data.geomodel_datasets import parse_well_xy
+        well_xy = parse_well_xy(
+            self.data_config.get('wells', extra.get('wells', {})),
+            index_base=int(self.data_config.get('well_index_base', 1)),
+        )
+        well_reduction = extra.get(
+            'well_reduction', extra.get('well_loss', 'mse'))
+        return {
+            'perceptual_weight': float(extra.get('perceptual_weight', 0.0)),
+            'well_weight': float(extra.get('well_weight', 0.0)),
+            'well_xy': well_xy,
+            'volume_shape': volume_shape,
+            'perceptual_network': extra.get(
+                'perceptual_network', 'resnet18'),
+            'slice_ratio': float(extra.get('slice_ratio', 0.2)),
+            'well_reduction': well_reduction,
+        }
 
     def create_or_load_vae_module(self, param_dict, dim):
         ddconfig_params = param_dict['ddconfig_params']
         kl_weight = param_dict['kl_weight']
         losstype = param_dict['target']
+        embed_dim = param_dict['embed_dim']
+        extra = param_dict.get('geomodel_kwargs') or {}
 
         if dim == 2:
-            vae_config = diffsci.models.nets.autoencoderldm2d.ddconfig(**ddconfig_params)
-            loss_config = diffsci.models.nets.autoencoderldm2d.lossconfig(
-                kl_weight=kl_weight, target=losstype)
-            if self.load is None:
-                # Create a new vae_module
-                return diffsci.models.nets.autoencoderldm2d.AutoencoderKL(vae_config, loss_config)
-            else:
-                # Load from checkpoint
-                checkpoint_path = self.get_checkpoint_path()
-                self.checkpoint_path = checkpoint_path
-                return diffsci.models.nets.autoencoderldm2d.AutoencoderKL.load_from_checkpoint(
-                    checkpoint_path,
-                    ddconfig=vae_config,
-                    lossconfig=loss_config
-                )
-
+            nets = diffsci.models.nets.autoencoderldm2d
+            vae_cls = nets.AutoencoderKL
         elif dim == 3:
-            vae_config = diffsci.models.nets.autoencoderldm3d.ddconfig(**ddconfig_params)
-            loss_config = diffsci.models.nets.autoencoderldm3d.lossconfig(
-                kl_weight=kl_weight, target=losstype
-            )
-            if self.load is None:
-                # Create a new vae_module
-                return diffsci.models.nets.autoencoderldm3d.AutoencoderKL(vae_config, loss_config)
+            nets = diffsci.models.nets.autoencoderldm3d
+            if extra:
+                from poregen.models.geomodel_autoencoder import (
+                    GeomodelAutoencoderKL)
+                vae_cls = GeomodelAutoencoderKL
             else:
-                # Load from checkpoint
-                checkpoint_path = self.get_checkpoint_path()
-                self.checkpoint_path = checkpoint_path
-                return diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
-                    checkpoint_path,
-                    ddconfig=vae_config,
-                    lossconfig=loss_config
-                )
+                vae_cls = nets.AutoencoderKL
         else:
             raise ValueError(f"Unsupported dimension: {dim}")
+
+        vae_config = nets.ddconfig(**ddconfig_params)
+        loss_config = nets.lossconfig(kl_weight=kl_weight, target=losstype)
+        init_kwargs = {'embed_dim': embed_dim}
+        if extra and dim == 3:
+            init_kwargs.update(extra)
+        if self.load is None:
+            return vae_cls(vae_config, loss_config, **init_kwargs)
+        checkpoint_path = self.get_checkpoint_path()
+        self.checkpoint_path = checkpoint_path
+        return vae_cls.load_from_checkpoint(
+            checkpoint_path,
+            ddconfig=vae_config,
+            lossconfig=loss_config,
+            **init_kwargs
+        )
 
     def get_checkpoint_path(self):
         if self.load == "best":
@@ -189,7 +213,7 @@ class PoreVAETrainer:
         )
 
     def train(self, datamodule):
-        if self.train:
+        if self.training:
             self.trainer.fit(model=self.vae_module, datamodule=datamodule)
         else:
             print("Training is disabled. Use 'train=True' to enable training.")

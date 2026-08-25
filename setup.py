@@ -16,7 +16,8 @@ setup(
         'lightning',
         'transformers',
         'netCDF4',
-        'jaxtyping'
+        'jaxtyping',
+        'h5py',
     ],
     version='0.1.0',
     description='Neural networks for porous media',

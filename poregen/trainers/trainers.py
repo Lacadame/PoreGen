@@ -27,7 +27,7 @@ def pore_train(cfg_path: str | pathlib.Path,
         cfg = yaml.safe_load(f)
     if data_path is None:
         data_path = cfg['data']['path']
-    datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+    datamodule = poregen.data.get_datamodule(data_path, cfg['data'])
     datamodule.setup()
     models = poregen.models.get_model(cfg['model'])
 
@@ -53,14 +53,13 @@ def pore_vae_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=
         cfg = yaml.safe_load(f)
     if data_path is None:
         data_path = cfg['data']['path']
-    datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+    datamodule = poregen.data.get_datamodule(data_path, cfg['data'])
     datamodule.setup()
-    # TODO: Infinite loop to check RAM memory usage of datamodule
     filename = os.path.basename(cfg_path)
-    # Remove yaml extension
     filename = filename.split('.')[0]
     basepath = pathlib.Path(cfg_path).parent.parent.parent
     folder = basepath/'savedmodels/experimental'/filename
+    cfg.setdefault('output', {})
     cfg['output']['folder'] = folder
 
     trainer = PoreVAETrainer(
@@ -90,7 +89,7 @@ def pore_load(cfg_path, checkpoint_path, load_data=False, data_path=None, image_
             data_path = cfg['data']['path']
         if image_size is not None:
             cfg['data']['image_size'] = image_size  # FIXME: Do a less ugly hack
-        datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+        datamodule = poregen.data.get_datamodule(data_path, cfg['data'])
         datamodule.setup()
         res['datamodule'] = datamodule
     else:
@@ -112,7 +111,7 @@ def pore_vae_load(cfg_path, checkpoint_path, load_data=False, data_path=None, im
     if load_data:
         if data_path is None:
             data_path = cfg['data']['path']
-        datamodule = poregen.data.get_binary_datamodule(data_path, cfg['data'])
+        datamodule = poregen.data.get_datamodule(data_path, cfg['data'])
         if image_size is not None:
             datamodule.cfg['image_size'] = image_size
         datamodule.setup()

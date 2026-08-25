@@ -1,0 +1,69 @@
+# VAE training for Di Federico & Durlofsky 3D-LDM geomodels
+# (arXiv:2508.16621). Data: Google Drive folder linked from
+# https://github.com/guidodf09/ldm_3d_geomodel (file m_petrel.h5).
+#
+# python scripts/training/train_pore_vae.py --cfgpath scripts/training/geomodel_ldm_vae.yaml
+
+data:
+  loader: geomodel
+  path: saveddata/external/ldm_3d_geomodel/m_petrel.h5
+  h5_key: data
+  dimension: 3
+  image_size: [128, 128, 32]
+  batch_size: 8
+  num_workers: 0
+  seed: 0
+  thresh_low: 0.25
+  thresh_high: 0.80
+  apply_thresholds: true
+  well_index_base: 1
+  wells:
+    i1: [16, 64]
+    i2: [64, 64]
+    i3: [112, 64]
+    p1: [16, 112]
+    p2: [64, 112]
+    p3: [112, 112]
+    p4: [16, 16]
+    p5: [64, 16]
+    p6: [112, 16]
+  split:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+
+model:
+  type: ldm
+  embed_dim: 1
+  config:
+    resolution: 128
+    in_channels: 1
+    out_ch: 1
+    ch: 64
+    ch_mult: [1, 2, 4, 8]
+    z_channels: 1
+    num_res_blocks: 1
+    attn_resolutions: []
+    dropout: 0.0
+    has_mid_attn: true
+    double_z: true
+
+training:
+  num_epochs: 1000
+  kl_weight: 1.0e-6
+  save_top_k: 3
+  val_check_interval: 1.0
+  precision: 32
+  accelerator: auto
+  devices: auto
+  geomodel_losses:
+    perceptual_weight: 1.0e-3
+    well_weight: 1.0e-2
+    perceptual_network: resnet18
+    slice_ratio: 0.2
+    well_reduction: mse
+  optimizer:
+    type: adam
+    lr: 1.0e-4
+
+output: {}
