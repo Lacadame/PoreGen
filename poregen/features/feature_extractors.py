@@ -354,10 +354,19 @@ class EulerNumberDensityExtractor(BaseExtractor):
 class PermeabilityExtractor(BaseExtractor):
     """Extract permeability using pore network modeling."""
 
-    def __init__(self, voxel_length: float = 2.25e-6, calculate_pc_curve: bool = False, **kwargs):
+    def __init__(
+        self,
+        type_pnm: int = 1,
+        voxel_length: float = 2.25e-6,
+        calculate_pc_curve: bool = False,
+        disable_parallelization: bool = False,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.voxel_length = voxel_length
         self.calculate_pc_curve = calculate_pc_curve
+        self.type_pnm = type_pnm
+        self.disable_parallelization = disable_parallelization
 
     @property
     def name(self) -> str:
@@ -373,21 +382,30 @@ class PermeabilityExtractor(BaseExtractor):
 
     def extract(self, data: torch.Tensor) -> Dict[str, torch.Tensor]:
         from . import permeability_from_pnm
-
         try:
             perm = permeability_from_pnm.calculate_permeability_from_pnm(
                 data,
                 self.voxel_length,
-                self.calculate_pc_curve
+                self.calculate_pc_curve,
+                type_pnm=self.type_pnm,
+                disable_parallelization=self.disable_parallelization
             )
-        except Exception:  # Could not calculate permeability
-            perm = {'permeabilities': np.nan, 'pc_curve': {'pc': np.nan, 'snwp': np.nan}}
-        out = {"permeability": torch.tensor(perm['permeabilities'], dtype=torch.float)}
-        if self.calculate_pc_curve:
-            out['pc_curve'] = {
-                'pc': torch.tensor(perm['pc_curve']['pc'], dtype=torch.float),
-                'snwp': torch.tensor(perm['pc_curve']['snwp'], dtype=torch.float)}
-        return out
+            out = {"permeability": torch.tensor(perm['permeabilities'], dtype=torch.float)}
+            if self.calculate_pc_curve:
+                out['pc_curve'] = {
+                    'pc': torch.tensor(perm['pc_curve']['pc'], dtype=torch.float),
+                    'snwp': torch.tensor(perm['pc_curve']['snwp'], dtype=torch.float)}
+            return out
+        except Exception:
+            # Keep evaluation running when PNM fails for a sample.
+            # The evaluator will report which sample got NaN permeability.
+            out = {"permeability": torch.full((3,), torch.nan, dtype=torch.float)}
+            if self.calculate_pc_curve:
+                out['pc_curve'] = {
+                    'pc': torch.tensor([], dtype=torch.float),
+                    'snwp': torch.tensor([], dtype=torch.float),
+                }
+            return out
 
 
 class SliceExtractor(BaseExtractor):

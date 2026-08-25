@@ -42,35 +42,56 @@ class BinaryVoxelDataModule(L.LightningDataModule):
         feature_extractor = self.get_feature_extractor()
 
         if self.stride is not None:
-            # Prepare dataset arguments
-            dataset_args = {
-                'subslice': self.cfg['image_size']
+            # Prepare dataset arguments for training (exclude hidden_interval)
+            train_dataset_args = {
+                'subslice': self.cfg['image_size'],
+                'hidden_interval': self.cfg.get('hidden_interval', None),
+                'include_only_hidden_interval': False
+            }
+            # Prepare dataset arguments for validation (include only hidden_interval)
+            val_dataset_args = {
+                'subslice': self.cfg['image_size'],
+                'hidden_interval': self.cfg.get('hidden_interval', None),
+                'include_only_hidden_interval': True
             }
             self.train_dataset = VoxelToSubvoxelSequentialDataset(self.stride,
                                                                   voxels,
                                                                   dataset_size=self.cfg['training_dataset_size'],
-                                                                  **dataset_args)
+                                                                  **train_dataset_args)
             self.val_dataset = VoxelToSubvoxelSequentialDataset(self.stride,
                                                                 voxels,
                                                                 dataset_size=self.cfg['validation_dataset_size'],
-                                                                **dataset_args)
+                                                                **val_dataset_args)
         else:
-            # Prepare dataset arguments
-            dataset_args = {
+            # Prepare dataset arguments for training (exclude hidden_interval)
+            train_dataset_args = {
                 'subslice': self.cfg['image_size'],
                 'voxel_downscale_factor': self.cfg['voxel_downscale_factor'],
                 'feature_extractor': feature_extractor,
                 'center': self.cfg.get('center', False),
                 'invert': self.cfg.get('invert', False),
                 'transform': self.cfg.get('transform', False),
+                'hidden_interval': self.cfg.get('hidden_interval', None),
+                'include_only_hidden_interval': False
+            }
+            # Prepare dataset arguments for validation (include only hidden_interval)
+            val_dataset_args = {
+                'subslice': self.cfg['image_size'],
+                'voxel_downscale_factor': self.cfg['voxel_downscale_factor'],
+                'feature_extractor': feature_extractor,
+                'center': self.cfg.get('center', False),
+                'invert': self.cfg.get('invert', False),
+                'transform': self.cfg.get('transform', False),
+                'hidden_interval': self.cfg.get('hidden_interval', None),
+                'include_only_hidden_interval': True
             }
             self.train_dataset = dataset_class(voxels,
                                                dataset_size=self.cfg['training_dataset_size'],
-                                               **dataset_args)
+                                               **train_dataset_args)
 
             self.val_dataset = dataset_class(voxels,
                                              dataset_size=self.cfg['validation_dataset_size'],
-                                             **dataset_args)
+                                             **val_dataset_args)
 
     def load_voxels(self):
         loader = self.cfg.get('loader', 'eleven_sandstones')

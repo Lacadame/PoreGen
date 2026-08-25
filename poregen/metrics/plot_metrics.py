@@ -90,7 +90,9 @@ def plot_unconditional_metrics(datapath,
                                use_log_properties=True,
                                convert_nan_to_zero=False,
                                which_porosity='raw',
-                               max_value_dict=None):
+                               max_value_dict=None,
+                               compute_reverse_kl=False,
+                               compute_tpc_kl=False):
     generated_datapaths = {'Generated': datapath}
     validation_datapath = datapath
     savepath = None
@@ -108,7 +110,9 @@ def plot_unconditional_metrics(datapath,
                                use_log_properties,
                                convert_nan_to_zero,
                                which_porosity,
-                               max_value_dict)
+                               max_value_dict,
+                               compute_reverse_kl,
+                               compute_tpc_kl)
 
 
 def plot_unconditional_metrics_group(generated_datapaths,
@@ -125,7 +129,9 @@ def plot_unconditional_metrics_group(generated_datapaths,
                                use_log_properties=True,
                                convert_nan_to_zero=False,
                                which_porosity='raw',
-                               max_value_dict=None):
+                               max_value_dict=None,
+                               compute_reverse_kl=False,
+                               compute_tpc_kl=False):
     # voxel_size in um
     cfg_path = f"{validation_datapath}/config.yaml"
 
@@ -181,9 +187,9 @@ def plot_unconditional_metrics_group(generated_datapaths,
                                  for name, stats in generated_stats_dict.items()}
     valid_log_momenta, _ = extract_property(valid_stats, 'log_momenta')
 
-    generated_euler_dict = {name: extract_property(stats, 'euler_number_density')[0]
-                             for name, stats in generated_stats_dict.items()}
-    valid_euler, _ = extract_property(valid_stats, 'euler_number_density')
+    # generated_euler_dict = {name: extract_property(stats, 'euler_number_density')[0]
+    #                          for name, stats in generated_stats_dict.items()}
+    # valid_euler, _ = extract_property(valid_stats, 'euler_number_density')
 
     ind_dict = {name: (porosity > min_porosity).flatten() & (porosity < max_porosity).flatten()
                 for name, porosity in porosity_for_filter_dict.items()}
@@ -196,11 +202,13 @@ def plot_unconditional_metrics_group(generated_datapaths,
         generated_log_permeabilities_dict = {}
         for name, permeabilities in generated_permeabilities_dict.items():
             permeabilities = permeabilities[ind_dict[name]]
-            log_permeabilities = np.log10(np.prod(permeabilities, axis=1)**(1/3))
+            # log_permeabilities = np.log10(np.prod(permeabilities, axis=1)**(1/3))
+            log_permeabilities = np.log10(permeabilities[:, 2])
             log_permeabilities[~np.isfinite(log_permeabilities)] = -np.inf
             generated_log_permeabilities_dict[name] = log_permeabilities
 
-        valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
+        # valid_log_permeabilities = np.log10(np.prod(valid_permeabilities, axis=1)**(1/3))
+        valid_log_permeabilities = np.log10(valid_permeabilities[:, 2])
         valid_log_permeabilities[~np.isfinite(valid_log_permeabilities)] = -np.inf
 
         if convert_nan_to_zero:
@@ -231,8 +239,8 @@ def plot_unconditional_metrics_group(generated_datapaths,
     generated_log_momenta_dict = {name: momenta[ind_dict[name]]
                                  for name, momenta in generated_log_momenta_dict.items()}
 
-    generated_euler_dict = {name: eulers[ind_dict[name]]
-                             for name, eulers in generated_euler_dict.items()}      #TODO: convert to right units
+    # generated_euler_dict = {name: eulers[ind_dict[name]]
+    #                          for name, eulers in generated_euler_dict.items()}      #TODO: convert to right units
 
     # Unit conversion
     # Permeability is already in Darcy
@@ -264,44 +272,44 @@ def plot_unconditional_metrics_group(generated_datapaths,
     if which_porosity == 'effective':
         generated_data_dict = {name: [generated_effective_porosities_dict[name],
                                     generated_surface_area_densities_dict[name],
-                                    generated_euler_dict[name],
+                                    # generated_euler_dict[name],
                                     generated_log_mean_pore_size_dict[name]]
                              for name in generated_datapaths}
         valid_data = [valid_effective_porosities,
                      valid_surface_area_densities,
-                     valid_euler,
+                    #  valid_euler,
                      valid_log_mean_pore_size]
-        properties = ['effective_porosity', 'surface_area_density', 'euler_number_density']
-        labels = ['Effective Porosity', 'Surface Area Density', 'Euler Number Density']
-        units = [r"$\phi$", r"$1/\mu m$", r"$1/\mu m^3$"]
+        properties = ['effective_porosity', 'surface_area_density'], #'euler_number_density'
+        labels = ['Effective Porosity', 'Surface Area Density'], #'Euler Number Density'
+        units = [r"$\phi$", r"$1/\mu m$"], #r"$1/\mu m^3$"
     elif which_porosity == 'raw':
         generated_data_dict = {name: [generated_raw_porosities_dict[name],
                                     generated_surface_area_densities_dict[name],
-                                    generated_euler_dict[name],
+                                    # generated_euler_dict[name],
                                     generated_log_mean_pore_size_dict[name]]
                              for name in generated_datapaths}
         valid_data = [valid_raw_porosities,
                      valid_surface_area_densities,
-                     valid_euler,
+                    #  valid_euler,
                      valid_log_mean_pore_size]
-        properties = ['porosity', 'surface_area_density', 'euler_number_density']
-        labels = ['Porosity', 'Surface Area Density', 'Euler Number Density']
-        units = [r"$\phi$", r"$1/\mu m$", r"$1/\mu m^3$"]
+        properties = ['porosity', 'surface_area_density']
+        labels = ['Porosity', 'Surface Area Density']
+        units = [r"$\phi$", r"$1/\mu m$"]
     else:  # both
         generated_data_dict = {name: [generated_raw_porosities_dict[name],
                                     generated_effective_porosities_dict[name],
                                     generated_surface_area_densities_dict[name],
-                                    generated_euler_dict[name],
+                                    # generated_euler_dict[name],
                                     generated_log_mean_pore_size_dict[name]]
                              for name in generated_datapaths}
         valid_data = [valid_raw_porosities,
                      valid_effective_porosities,
                      valid_surface_area_densities,
-                     valid_euler,
+                    #  valid_euler,
                      valid_log_mean_pore_size]
-        properties = ['porosity', 'effective_porosity', 'surface_area_density', 'euler_number_density']
-        labels = ['Porosity', 'Effective Porosity', 'Surface Area Density', 'Euler Number Density']
-        units = [r"$\phi$", r"$\phi$", r"$1/\mu m$", r"$1/\mu m^3$"]
+        properties = ['porosity', 'effective_porosity', 'surface_area_density']
+        labels = ['Porosity', 'Effective Porosity', 'Surface Area Density']
+        units = [r"$\phi$", r"$\phi$", r"$1/\mu m$"]
 
     if use_log_properties:
         properties.append('log_mean_pore_size')
@@ -326,11 +334,15 @@ def plot_unconditional_metrics_group(generated_datapaths,
             units.append(r"$\text{Darcy}$")
 
     figs1 = plot_histograms(generated_data_dict, valid_data, properties, labels, units, nbins, max_value_dict=max_value_dict, layout_params=LAYOUT_PARAMS)
-    figs1_kde, divergences = plot_kde(generated_data_dict, valid_data, properties, labels, units, max_value_dict=max_value_dict, layout_params=LAYOUT_PARAMS)
+    figs1_kde, divergences = plot_kde(generated_data_dict, valid_data, properties, labels, units,
+                                      max_value_dict=max_value_dict, layout_params=LAYOUT_PARAMS,
+                                      compute_reverse_kl=compute_reverse_kl)
 
     fig2 = plot_boxplots(generated_data_dict, valid_data, properties, labels, units, layout_params=LAYOUT_PARAMS)
     # TPC and PSD related code
-    fig3, tpc_divergences = plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, voxel_size_um, layout_params=LAYOUT_PARAMS)
+    fig3, tpc_divergences = plot_two_point_correlation_comparison(
+        generated_stats_dict, valid_stats, voxel_size_um, layout_params=LAYOUT_PARAMS,
+        compute_reverse_kl=compute_reverse_kl, compute_tpc_kl=compute_tpc_kl)
     divergences['tpc_divergences'] = tpc_divergences
     if show_psd:
         fig4, psd_divergences = plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um)
@@ -785,7 +797,9 @@ def plot_boxplots(generated_data_dict, valid_data, properties, labels, units, co
     return figs
 
 
-def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, voxel_size_um, ind=None, layout_params=None):
+def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, voxel_size_um, ind=None,
+                                          layout_params=None, compute_reverse_kl=False,
+                                          compute_tpc_kl=False):
     """Plot comparison of two point correlation between generated and validation data.
 
     Parameters
@@ -865,11 +879,12 @@ def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, vox
         x_generated = generated_tpc_dist.mean(axis=0)
 
         # Calculate divergences
-        kl_div = np.mean([hellinger_distance_kde_mc(generated_tpc_prob[:, i], 
-                                                   valid_tpc_prob[:, i])
-                         for i in range(generated_tpc_prob.shape[1])])
-        hellinger_dist = np.mean([hellinger_distance_kde_mc(generated_tpc_prob[:, i], 
-                                                          valid_tpc_prob[:, i])
+        if compute_tpc_kl:
+            kl_div = mean_tpc_kl_divergence(valid_tpc_prob, generated_tpc_prob)
+        else:
+            kl_div = np.nan
+        hellinger_dist = np.mean([hellinger_distance_kde_mc(valid_tpc_prob[:, i],
+                                                            generated_tpc_prob[:, i])
                                 for i in range(generated_tpc_prob.shape[1])])
         rel_error = np.mean(np.abs(mean_generated_tpc_prob - mean_valid_tpc_prob) / 
                           mean_valid_tpc_prob)
@@ -879,6 +894,10 @@ def plot_two_point_correlation_comparison(generated_stats_dict, valid_stats, vox
             'hellinger_distance': float(hellinger_dist),
             'mean_relative_error': float(rel_error)
         }
+        if compute_reverse_kl and compute_tpc_kl:
+            divergences[name]['kl_divergence_reverse'] = float(
+                mean_tpc_kl_divergence(valid_tpc_prob, generated_tpc_prob, reverse=True)
+            )
 
         # Plot generated data
         y1 = mean_generated_tpc_prob-2*std_generated_tpc_prob
@@ -989,7 +1008,8 @@ def plot_kde(generated_data_dict,
              units,
              contour=False,
              max_value_dict=None,
-             layout_params=None):
+             layout_params=None,
+             compute_reverse_kl=False):
     # Default layout parameters
     default_layout = {
         'figsize': (6, 6),
@@ -1067,20 +1087,16 @@ def plot_kde(generated_data_dict,
                        color=GENERATED_PLOT_COLORS[j])
 
             # Calculate divergence metrics
-            kl_div = kl_divergence_kde_mc(val.flatten(), gen.flatten(), 
-                                        n_samples=10000)
-            hellinger_dist = hellinger_distance_kde_mc(val.flatten(), 
-                                                     gen.flatten(), 
-                                                     n_samples=10000)
-            if label in ['Porosity', 'Surface Area Density', 'Euler Number Density',
+            divergence_metrics = compute_divergence_metrics(
+                val.flatten(), gen.flatten(), compute_reverse_kl=compute_reverse_kl)
+            if label in ['Porosity', 'Surface Area Density', #'Euler Number Density',
                         'Mean Pore Size', 'Permeability']:
                 rel_error = mean_relative_error(val.flatten(), gen.flatten())
             else:
                 rel_error = np.nan
 
             divergences[prop][name] = {
-                'kl_divergence': kl_div,
-                'hellinger_distance': hellinger_dist,
+                **divergence_metrics,
                 'mean_relative_error': rel_error
             }
 
@@ -1208,6 +1224,63 @@ def plot_pore_size_distribution(generated_stats_dict, valid_stats, voxel_size_um
     plt.subplots_adjust(**default_layout['plot_margins'])
 
     return fig, divergences
+
+
+def compute_divergence_metrics(data_sample, generated_sample, compute_reverse_kl=False,
+                               n_samples=10000):
+    """Compute divergence metrics between validation (data) and generated samples."""
+    data_finite = np.asarray(data_sample).flatten()
+    data_finite = data_finite[np.isfinite(data_finite)]
+    generated_finite = np.asarray(generated_sample).flatten()
+    generated_finite = generated_finite[np.isfinite(generated_finite)]
+
+    metrics = {
+        'kl_divergence': safe_kl_divergence_kde_mc(
+            data_finite, generated_finite, n_samples=n_samples),
+        'hellinger_distance': hellinger_distance_kde_mc(
+            data_finite, generated_finite, n_samples=n_samples),
+    }
+    if compute_reverse_kl:
+        metrics['kl_divergence_reverse'] = safe_kl_divergence_kde_mc(
+            generated_finite, data_finite, n_samples=n_samples)
+    return metrics
+
+
+def mean_tpc_kl_divergence(valid_tpc_prob, generated_tpc_prob, reverse=False, n_samples=10000):
+    """Compute mean KL across TPC radial bins.
+
+    For each radial bin, compares the distribution of s_2(r) across samples
+    using Gaussian KDE. By default returns D_KL(p_data || p_generated).
+    """
+    kl_values = []
+    for i in range(valid_tpc_prob.shape[1]):
+        valid_bin = valid_tpc_prob[:, i]
+        generated_bin = generated_tpc_prob[:, i]
+        if reverse:
+            kl = safe_kl_divergence_kde_mc(generated_bin, valid_bin, n_samples=n_samples)
+        else:
+            kl = safe_kl_divergence_kde_mc(valid_bin, generated_bin, n_samples=n_samples)
+        if np.isfinite(kl):
+            kl_values.append(kl)
+    if not kl_values:
+        return np.nan
+    return float(np.mean(kl_values))
+
+
+def safe_kl_divergence_kde_mc(sample1, sample2, n_samples=10000, seed=None):
+    """KL divergence with guards for degenerate samples used in TPC bin metrics."""
+    sample1 = np.asarray(sample1)
+    sample2 = np.asarray(sample2)
+    sample1 = sample1[np.isfinite(sample1)]
+    sample2 = sample2[np.isfinite(sample2)]
+    if len(sample1) < 2 or len(sample2) < 2:
+        return np.nan
+    if np.std(sample1) == 0 and np.std(sample2) == 0:
+        return 0.0 if np.allclose(np.mean(sample1), np.mean(sample2)) else np.nan
+    try:
+        return kl_divergence_kde_mc(sample1, sample2, n_samples=n_samples, seed=seed)
+    except (np.linalg.LinAlgError, ValueError):
+        return np.nan
 
 
 def kl_divergence_kde_mc(sample1, sample2, n_samples=10000, seed=None):

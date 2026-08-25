@@ -57,8 +57,12 @@ class BaseVoxelDataset(Dataset):
         invert: bool = False,
         image_size: Union[int, List[int]] = None,
         pool_mode: str = 'avg',
-        return_as_dict: bool = False
-    ):  
+        return_as_dict: bool = False,
+        hidden_interval: dict[str, float] = None,
+        include_only_hidden_interval: bool = False,
+    ):
+        self.hidden_interval = hidden_interval
+        self.include_only_hidden_interval = include_only_hidden_interval
         if image_size is not None:
             warnings.warn("'image_size' is deprecated, use 'subslice' instead",
                           DeprecationWarning)
@@ -136,24 +140,47 @@ class VoxelToSlicesDataset(BaseVoxelDataset):
         super().__init__(*args, **kwargs)
         self.cropper = transforms.RandomCrop(self.subslice[:2])
 
-    def __getitem__(self, idx: int) -> Union[torch.Tensor,
-                                             Tuple[torch.Tensor, torch.Tensor]]:
-        voxel = self.get_random_voxel()
-        slice_idx = np.random.randint(voxel.shape[0])
-        x = voxel[slice_idx].unsqueeze(0)
-        x = self.cropper(x)
-        x = self.process_crop(x)
+    def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        attempt = 0
+        max_attempts = 100
 
-        if self.feature_extractor:
+        while attempt < max_attempts:
+            voxel = self.get_random_voxel()
+            slice_idx = np.random.randint(voxel.shape[0])
+            x = voxel[slice_idx].unsqueeze(0)
+            x = self.cropper(x)
+            x = self.process_crop(x)
+
+            if not self.feature_extractor:
+                if self.return_as_dict:
+                    return {'x': x}
+                return x
+
             y = self.feature_extractor(x)
-            if self.return_as_dict:
-                return {'x': x, 'y': y}
-            else:
-                return x, y
-        elif self.return_as_dict:
-            return {'x': x}
+            is_valid = True
+            if self.hidden_interval is not None:
+                property_name = list(self.hidden_interval.keys())[0]
+                min_value, max_value = self.hidden_interval[property_name]
+                val = y[property_name]
+                is_in_interval = min_value < val < max_value
+                if self.include_only_hidden_interval:
+                    # For validation: only include samples within the hidden_interval
+                    is_valid = is_in_interval
+                else:
+                    # For training: exclude samples within the hidden_interval
+                    is_valid = not is_in_interval
+
+            if is_valid:
+                if self.return_as_dict:
+                    return {'x': x, 'y': y}
+                else:
+                    return x, y
+
+            attempt += 1
+        if self.include_only_hidden_interval:
+            raise RuntimeError(f"Could not find sample within {self.hidden_interval} after {max_attempts} attempts.")
         else:
-            return x
+            raise RuntimeError(f"Could not find sample outside {self.hidden_interval} after {max_attempts} attempts.")
 
 
 class VoxelToSubvoxelDataset(BaseVoxelDataset):
@@ -161,24 +188,48 @@ class VoxelToSubvoxelDataset(BaseVoxelDataset):
 
     def __getitem__(self, idx: int) -> Union[torch.Tensor,
                                              Tuple[torch.Tensor, torch.Tensor]]:
-        voxel = self.get_random_voxel()
-        starts = [np.random.randint(0, dim - sub + 1)
-                  for dim, sub in zip(voxel.shape, self.subslice)]
-        slices = tuple(slice(start, start + sub)
-                       for start, sub in zip(starts, self.subslice))
-        crop = voxel[slices].unsqueeze(0)
-        crop = self.process_crop(crop)
+        attempt = 0
+        max_attempts = 100
 
-        if self.feature_extractor:
+        while attempt < max_attempts:
+            voxel = self.get_random_voxel()
+            starts = [np.random.randint(0, dim - sub + 1)
+                      for dim, sub in zip(voxel.shape, self.subslice)]
+            slices = tuple(slice(start, start + sub)
+                           for start, sub in zip(starts, self.subslice))
+            crop = voxel[slices].unsqueeze(0)
+            crop = self.process_crop(crop)
+
+            if not self.feature_extractor:
+                if self.return_as_dict:
+                    return {'x': crop}
+                return crop
+
             y = self.feature_extractor(crop)
-            if self.return_as_dict:
-                return {'x': crop, 'y': y}
-            else:
-                return crop, y
-        elif self.return_as_dict:
-            return {'x': crop}
+            is_valid = True
+            if self.hidden_interval is not None:
+                property_name = list(self.hidden_interval.keys())[0]
+                min_value, max_value = self.hidden_interval[property_name]
+                val = y[property_name]
+                is_in_interval = min_value < val < max_value
+                if self.include_only_hidden_interval:
+                    # For validation: only include samples within the hidden_interval
+                    is_valid = is_in_interval
+                else:
+                    # For training: exclude samples within the hidden_interval
+                    is_valid = not is_in_interval
+
+            if is_valid:
+                if self.return_as_dict:
+                    return {'x': crop, 'y': y}
+                else:
+                    return crop, y
+
+            attempt += 1
+        if self.include_only_hidden_interval:
+            raise RuntimeError(f"Could not find sample within {self.hidden_interval} after {max_attempts} attempts.")
         else:
-            return crop
+            raise RuntimeError(f"Could not find sample outside {self.hidden_interval} after {max_attempts} attempts.")
 
 
 class VoxelToSubvoxelSequentialDataset(BaseVoxelDataset):

@@ -571,6 +571,8 @@ def trim_nearby_peaks(peaks, dt, f=1):
         from skimage.morphology import cube
 
     labels, N = spim.label(peaks > 0, structure=cube(3))
+    if N == 0:
+        return peaks
     crds = spim.measurements.center_of_mass(peaks > 0, labels=labels,
                                             index=np.arange(1, N + 1))
     crds = np.vstack(crds).astype(int)  # Convert to numpy array of ints

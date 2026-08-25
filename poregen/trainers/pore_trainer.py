@@ -329,9 +329,11 @@ class PoreTrainer:
                 nsteps = 256
             elif integrator == 'sde':
                 nsteps = 256
-                integrator = diffsci.models.EulerMaruyamaIntegrator()
             else:
                 nsteps = 50
+        if integrator == 'sde':
+            integrator = diffsci.models.EulerMaruyamaIntegrator()
+            
         if not filter_spectra:
             samples = self.karras_module.sample(
                 nsamples,

@@ -257,6 +257,7 @@ def _radial_profile(autocorr, bins, pf=None, voxel_size=1):
     tpcf.bin_widths = h.bin_widths * voxel_size
     tpcf.probability = norm_autoc_radial
     tpcf.probability_scaled = norm_autoc_radial * pf
+    tpcf.radial_sum = radial_sum
     tpcf.pdf = h.pdf * pf
     tpcf.relfreq = h.relfreq
     return tpcf

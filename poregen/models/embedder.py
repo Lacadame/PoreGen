@@ -1,6 +1,7 @@
 import torch
 
 from diffsci.models.nets import commonlayers
+import einops
 
 
 class PositionalEncoding1d(torch.nn.Module):
@@ -222,9 +223,66 @@ class PorosityEmbedder(torch.nn.Module):
 
     def forward(self, x):
         # x : [nbatch, 1]
-        x = x['porosity'].squeeze(-1)
-        y = self.net(self.gaussian_proj(x))
+        x = x['porosity']
+        x = x.squeeze(-1)
+        ndim = x.ndim
+        if ndim == 1:
+            y = self.net(self.gaussian_proj(x))
+        elif ndim > 1:
+            # x begins as [nbatch, *shape_dims]
+            shape_strings = ' '.join([f's{dim}' for dim in range(1, ndim)])
+            kwargs = {f's{dim}': x.shape[dim] for dim in range(1, ndim)}
+            pattern = f'nbatch {shape_strings} -> (nbatch {shape_strings})'
+            x = einops.rearrange(x, pattern, **kwargs)
+            y = self.net(self.gaussian_proj(x))
+            pattern = f'(nbatch {shape_strings}) dembed -> nbatch dembed {shape_strings}'
+            y = einops.rearrange(y, pattern, **kwargs)
+        else:
+            raise ValueError(f"Invalid number of dimensions: {ndim}")
         return y
+
+    def export_description(self):
+        return {
+            'dembed': self.dembed,
+            'scale': self.scale
+        }
+
+
+class PorosityLinearEmbedder(torch.nn.Module):
+    def __init__(self,
+                 dembed):
+        super().__init__()
+        self.dembed = dembed
+        self.linear = torch.nn.Linear(1, dembed)
+
+    def forward(self, x):
+        # x : [nbatch, 1]
+        x = x['porosity']
+        y = self.linear(x)
+        return y
+
+    def export_description(self):
+        return {
+            'dembed': self.dembed,
+        }
+
+
+class PorosityFixedEmbedding(torch.nn.Module):
+    def __init__(self,
+                 dembed,
+                 scale=30.0):
+        super().__init__()
+        self.dembed = dembed
+        self.scale = scale
+        self.register_buffer('W', torch.randn(1, dembed))
+
+    def forward(self, x):
+        # x : [nbatch, 1]
+        y = x['porosity'].squeeze(-1)
+        # Ensure y has the right shape for broadcasting: [nbatch] -> [nbatch, 1]
+        if y.ndim == 1:
+            y = y.unsqueeze(-1)
+        return y * self.scale * self.W
 
     def export_description(self):
         return {
@@ -340,7 +398,7 @@ class TwoPointCorrelationTransformer(FunctionTransformer):
             )
         else:
             raise ValueError("Either tpc_embedder or dembed must be provided")
-        
+
         super().__init__(
             func_embedder=embedder,
             nhead=nhead,
@@ -351,6 +409,14 @@ class TwoPointCorrelationTransformer(FunctionTransformer):
 
 def get_porosity_embedder(dembed, scale=30.0):
     return PorosityEmbedder(dembed, scale)
+
+
+def get_porosity_linear_embedder(dembed):
+    return PorosityLinearEmbedder(dembed)
+
+
+def get_porosity_fixed_embedding(dembed, scale=30.0):
+    return PorosityFixedEmbedding(dembed, scale)
 
 
 def get_psd_momenta_embedder(dembed, nmax=4, type='standardized_momenta', scale=30.0, fourier=True):

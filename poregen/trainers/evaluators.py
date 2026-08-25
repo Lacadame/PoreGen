@@ -72,7 +72,7 @@ def pore_eval_cached(cfg_path: str | pathlib.Path,  # noqa: C901
         valid_samples, existing_generated_stats,
         existing_valid_stats
     )
-    
+
     # Add force_recalculation extractors to needed_extractors
     if force_recalculation:
         # Ensure force_recalculation items are valid extractors
@@ -110,9 +110,11 @@ def pore_eval_cached(cfg_path: str | pathlib.Path,  # noqa: C901
 def pore_eval(cfg_path,  # noqa: C901
               checkpoint_path,
               nsamples: int = 64,
+              nsteps: int | None = None,
               nsamples_valid: int | None = None,
               maximum_batch_size: int = 16,
               integrator: str | None = None,
+              gamma: float | None = None,
               extractors: str | list[str] = '3d',
               extractor_kwargs: dict[str, KwargsType] = {},
               y: ConditionType = None,
@@ -122,7 +124,8 @@ def pore_eval(cfg_path,  # noqa: C901
               image_size: None | int = None,
               filter_spectra: bool = False,
               only_porosity: bool = False,
-              net_postprocessing: None | Callable = None):
+              net_postprocessing: None | Callable = None,
+              val_hidden_interval_mode: str = 'hidden'):
     if only_porosity:
         warnings.warn("only_porosity is deprecated, use extractors=['porosity'] instead")
         extractors = ['porosity']
@@ -131,8 +134,10 @@ def pore_eval(cfg_path,  # noqa: C901
                                         checkpoint_path,
                                         load_data=True,
                                         image_size=image_size)
+    module = loaded['trainer'].karras_module
+    if gamma is not None:
+        module.config.noisescheduler.langevin_const = gamma
     if net_postprocessing is not None:
-        module = loaded['trainer'].karras_module
         module.model = net_postprocessing(module.model)
         loaded['trainer'].karras_module = module
     try:
@@ -143,11 +148,12 @@ def pore_eval(cfg_path,  # noqa: C901
 
     if nsamples_valid is None:
         nsamples_valid = nsamples
+    
+    valid_samples = _get_validation_samples(loaded, nsamples_valid, val_hidden_interval_mode)
 
     x_cond, y = _process_conditions(y, loaded, nsamples, guided)
 
     device = torch.device(f'cuda:{device_id}')
-    module = loaded['trainer'].karras_module
     module.to(device)
 
     stats_folder = _create_stats_folder_from_checkpoint(
@@ -164,10 +170,8 @@ def pore_eval(cfg_path,  # noqa: C901
         integrator,
         y,
         filter_spectra,
-        guided)
-
-    valid_samples = _get_validation_samples(loaded, nsamples_valid)
-
+        guided,
+        nsteps)
     extractor = _setup_extractor(extractors, voxel_size_um, extractor_kwargs)
 
     generated_stats_all, valid_stats_all, cond_stats, cond_stats_all = _calculate_statistics(
@@ -325,11 +329,13 @@ def _process_and_save_cached_stats(samples, extractor, needed_extractors,
             if needed_extractors:
                 new_stats = extractor(torch.tensor(sample))
                 _convert_dict_items_to_numpy(new_stats)
+                _log_invalid_permeability(new_stats, i, stats_type)
                 stats.update(new_stats)
         else:
             # Calculate all required properties
             stats = extractor(torch.tensor(sample))
             _convert_dict_items_to_numpy(stats)
+            _log_invalid_permeability(stats, i, stats_type)
 
         stats_all.append(stats)
 
@@ -374,7 +380,8 @@ def _generate_samples(
             integrator,
             y,
             filter_spectra,
-            guided
+            guided,
+            nsteps=None
         ):
     if guided:
         # I will change the logic a bit to consider
@@ -400,6 +407,7 @@ def _generate_samples(
         print(y, 'CONDITION')
         generated_samples = loaded['trainer'].sample(
             nsamples=nsamples,
+            nsteps=nsteps,
             maximum_batch_size=maximum_batch_size,
             integrator=integrator,
             y=y,
@@ -408,8 +416,31 @@ def _generate_samples(
     return generated_samples
 
 
-def _get_validation_samples(loaded, nsamples_valid):
-    if loaded['datamodule'].val_dataset.feature_extractor is not None:
+def _get_validation_samples(loaded, nsamples_valid, val_hidden_interval_mode: str = 'hidden'):
+    """
+    Get validation samples with configurable hidden_interval filtering.
+    
+    Args:
+        loaded: Dictionary containing 'datamodule' key with the datamodule
+        nsamples_valid: Number of validation samples to get
+        val_hidden_interval_mode: Mode for filtering validation samples:
+            - 'hidden': Only include samples within hidden_interval (default)
+            - 'complement': Only include samples outside hidden_interval
+            - 'full': Include all samples, ignoring hidden_interval
+    """
+    val_dataset = loaded['datamodule'].val_dataset
+
+    if val_hidden_interval_mode == 'hidden':
+        val_dataset.include_only_hidden_interval = True
+    elif val_hidden_interval_mode == 'complement':
+        val_dataset.include_only_hidden_interval = False
+    elif val_hidden_interval_mode == 'full':
+        val_dataset.hidden_interval = None
+        val_dataset.include_only_hidden_interval = False
+    else:
+        raise ValueError(f"val_hidden_interval_mode must be one of 'hidden', 'complement', or 'full', got '{val_hidden_interval_mode}'")
+    
+    if val_dataset.feature_extractor is not None:
         # FIXME: This is rather inneficient, because we are calculating feature_extractors twice for each sample.
         # I'm not sure if there is a better way to do this, except for artifically turning off the feature_extractor
         # and then turning it back on.
@@ -419,12 +450,13 @@ def _get_validation_samples(loaded, nsamples_valid):
         # valid_samples = torch.stack([loaded['datamodule'].val_dataset[i] for i in range(nsamples)]).cpu().numpy()
         # loaded['datamodule'].val_dataset.feature_extractor = old_feature_extractor
         # But I'm not sure if this is a good idea.
-        valid_samples = [loaded['datamodule'].val_dataset[i][0]
-                         for i in range(nsamples_valid)]
+        valid_samples = [val_dataset[i][0]
+                            for i in range(nsamples_valid)]
     else:
-        valid_samples = [loaded['datamodule'].val_dataset[i]
-                         for i in range(nsamples_valid)]
+        valid_samples = [val_dataset[i]
+                            for i in range(nsamples_valid)]
     valid_samples = torch.stack(valid_samples).cpu().numpy()
+
     return valid_samples
 
 
@@ -470,10 +502,12 @@ def _calculate_statistics(generated_samples, valid_samples, extractor, guided, x
     for i, generated_sample in enumerate(generated_samples):
         generated_stats = extractor(torch.tensor(generated_sample))
         _convert_dict_items_to_numpy(generated_stats)
+        _log_invalid_permeability(generated_stats, i, "generated")
         generated_stats_all.append(generated_stats)
     for i, valid_sample in enumerate(valid_samples):
         valid_stats = extractor(torch.tensor(valid_sample))
         _convert_dict_items_to_numpy(valid_stats)
+        _log_invalid_permeability(valid_stats, i, "valid")
         valid_stats_all.append(valid_stats)
 
     cond_stats = None
@@ -490,6 +524,20 @@ def _calculate_statistics(generated_samples, valid_samples, extractor, guided, x
             cond_stats = extractor(torch.tensor(x_cond))
             _convert_dict_items_to_numpy(cond_stats)
     return generated_stats_all, valid_stats_all, cond_stats, cond_stats_all
+
+
+def _log_invalid_permeability(stats, sample_index: int, split_name: str):
+    permeability = stats.get('permeability')
+    if permeability is None:
+        return
+    permeability_array = np.array(permeability, dtype=np.float32)
+    if permeability_array.size == 0 or np.isnan(permeability_array).any():
+        sample_id = f"{sample_index + 1:05d}"
+        warnings.warn(
+            f"Invalid permeability for {split_name} sample {sample_id}; "
+            "PNM solve failed or produced incomplete output. Stored NaN values.",
+            RuntimeWarning,
+        )
 
 
 def _save_results(generated_samples, valid_samples, generated_stats_all, valid_stats_all,
