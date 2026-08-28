@@ -74,6 +74,8 @@ class PoreVAETrainer:
         )
         well_reduction = extra.get(
             'well_reduction', extra.get('well_loss', 'mse'))
+        recon_loss = extra.get(
+            'recon_loss', extra.get('objective', 'ldm'))
         return {
             'perceptual_weight': float(extra.get('perceptual_weight', 0.0)),
             'well_weight': float(extra.get('well_weight', 0.0)),
@@ -83,6 +85,7 @@ class PoreVAETrainer:
                 'perceptual_network', 'resnet18'),
             'slice_ratio': float(extra.get('slice_ratio', 0.2)),
             'well_reduction': well_reduction,
+            'recon_loss': recon_loss,
         }
 
     def create_or_load_vae_module(self, param_dict, dim):
@@ -111,6 +114,12 @@ class PoreVAETrainer:
         init_kwargs = {'embed_dim': embed_dim}
         if extra and dim == 3:
             init_kwargs.update(extra)
+        # Training resume must go through Trainer.fit(ckpt_path=...) so that
+        # epoch, optimizer, AMP scaler, and callback state are restored.
+        # load_from_checkpoint only restores weights and would restart at 0.
+        if self.training:
+            self.checkpoint_path = self.resolve_fit_ckpt_path()
+            return vae_cls(vae_config, loss_config, **init_kwargs)
         if self.load is None:
             return vae_cls(vae_config, loss_config, **init_kwargs)
         checkpoint_path = self.get_checkpoint_path()
@@ -122,21 +131,53 @@ class PoreVAETrainer:
             **init_kwargs
         )
 
+    def _checkpoint_dir(self):
+        return os.path.join(self.output_config['folder'], 'checkpoints')
+
+    def _last_ckpt_path(self):
+        return os.path.join(self._checkpoint_dir(), 'last.ckpt')
+
+    def _best_checkpoint_path(self):
+        checkpoint_dir = self._checkpoint_dir()
+        checkpoints = [
+            path for path in glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
+            if os.path.basename(path) != 'last.ckpt'
+            and 'val_loss=' in os.path.basename(path)
+        ]
+        if not checkpoints:
+            raise ValueError(
+                f"No val_loss checkpoints found in {checkpoint_dir}."
+            )
+        return min(
+            checkpoints,
+            key=lambda path: float(
+                path.split('val_loss=')[-1].split('.ckpt')[0]
+            ),
+        )
+
+    def resolve_fit_ckpt_path(self):
+        """Path for Lightning fit resume, or None to start from scratch."""
+        load = self.load
+        if load in (None, False, "", "none"):
+            return None
+        if load is True:
+            load = "last"
+        if isinstance(load, str) and load.lower() in {"last", "auto"}:
+            path = self._last_ckpt_path()
+            return path if os.path.isfile(path) else None
+        if isinstance(load, str) and load.lower() == "best":
+            return self._best_checkpoint_path()
+        if os.path.isfile(str(load)):
+            return str(load)
+        raise ValueError(f"Invalid checkpoint specification: {load}")
+
     def get_checkpoint_path(self):
-        if self.load == "best":
-            # Find the checkpoint with the lowest val_loss
-            checkpoint_dir = os.path.join(self.output_config['folder'], 'checkpoints')
-            print(checkpoint_dir)
-            checkpoints = glob.glob(os.path.join(checkpoint_dir, '*.ckpt'))
-            if not checkpoints:
-                raise ValueError("No checkpoints found in the specified directory.")
-            best_checkpoint = min(checkpoints, key=lambda x: float(x.split('val_loss=')[-1].split('.ckpt')[0]))
-            return best_checkpoint
-        elif os.path.isfile(self.load):
-            # Load the specified checkpoint
-            return self.load
-        else:
-            raise ValueError(f"Invalid checkpoint specification: {self.load}")
+        path = self.resolve_fit_ckpt_path()
+        if path is None:
+            raise ValueError(
+                f"Invalid or missing checkpoint specification: {self.load}"
+            )
+        return path
 
     def setup_optimizer(self):
         # Create optimizer
@@ -187,7 +228,9 @@ class PoreVAETrainer:
             filename='model-{epoch:03d}-{val_loss:.6f}',
             save_top_k=self.train_config.get('save_top_k', 3),
             monitor='val_loss',
-            mode='min'
+            mode='min',
+            save_last=True,
+            every_n_epochs=self.train_config.get('every_n_epochs', 1),
         )
         lr_monitor = pl_callbacks.LearningRateMonitor(logging_interval='step')
 
@@ -206,6 +249,8 @@ class PoreVAETrainer:
             val_check_interval=self.train_config.get('val_check_interval', 1.0),
             precision=self.train_config.get('precision', 32),
             gradient_clip_val=self.train_config.get('gradient_clip_val', None),
+            accumulate_grad_batches=self.train_config.get(
+                'accumulate_grad_batches', 1),
             strategy=self.train_config.get('strategy', 'auto'),
             accelerator=self.train_config.get('accelerator', 'auto'),
             devices=self.train_config.get('devices', 'auto'),
@@ -214,7 +259,16 @@ class PoreVAETrainer:
 
     def train(self, datamodule):
         if self.training:
-            self.trainer.fit(model=self.vae_module, datamodule=datamodule)
+            if self.checkpoint_path:
+                print(f"Resuming training from {self.checkpoint_path}")
+            else:
+                print("Starting training from scratch "
+                      "(no last.ckpt to resume).")
+            self.trainer.fit(
+                model=self.vae_module,
+                datamodule=datamodule,
+                ckpt_path=self.checkpoint_path,
+            )
         else:
             print("Training is disabled. Use 'train=True' to enable training.")
 

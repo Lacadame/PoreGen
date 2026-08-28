@@ -62,6 +62,8 @@ def pore_vae_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=
     cfg.setdefault('output', {})
     cfg['output']['folder'] = folder
 
+    if checkpoint_path is None:
+        checkpoint_path = cfg['training'].get('resume_from_checkpoint')
     trainer = PoreVAETrainer(
         cfg['model'],
         cfg['training'],

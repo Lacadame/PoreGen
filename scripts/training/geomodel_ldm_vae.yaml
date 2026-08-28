@@ -2,7 +2,16 @@
 # (arXiv:2508.16621). Data: Google Drive folder linked from
 # https://github.com/guidodf09/ldm_3d_geomodel (file m_petrel.h5).
 #
+# Tuned for a single Tesla V100-PCIE-16GB. The upstream github config used
+# batch_size 8 with multi_gpu: true (DataParallel, typically a DGX). That
+# microbatch OOMs here; keep the same VAE and effective batch of 8 via
+# accumulate_grad_batches. V100 has FP16 tensor cores but not bf16.
+#
 # python scripts/training/train_pore_vae.py --cfgpath scripts/training/geomodel_ldm_vae.yaml
+#
+# Rerun that same command after a V100 shutdown: last.ckpt is written every
+# epoch (weights + optimizer + AMP + epoch). Delete
+# savedmodels/experimental/geomodel_ldm_vae/checkpoints to start over.
 
 data:
   loader: geomodel
@@ -10,8 +19,9 @@ data:
   h5_key: data
   dimension: 3
   image_size: [128, 128, 32]
-  batch_size: 8
+  batch_size: 2
   num_workers: 0
+  pin_memory: true
   seed: 0
   thresh_low: 0.25
   thresh_high: 0.80
@@ -52,11 +62,16 @@ training:
   num_epochs: 1000
   kl_weight: 1.0e-6
   save_top_k: 3
+  resume_from_checkpoint: last
   val_check_interval: 1.0
-  precision: 32
-  accelerator: auto
-  devices: auto
+  precision: "16-mixed"
+  accelerator: gpu
+  devices: 1
+  accumulate_grad_batches: 4
   geomodel_losses:
+    # mean_l1: volume L1 and well L1 are both means (guidodf09/ldm_3d_geomodel).
+    # ldm: DiffSci summed MSE recon + WellEnforcementLoss (legacy).
+    recon_loss: mean_l1
     perceptual_weight: 1.0e-3
     well_weight: 1.0e-2
     perceptual_network: resnet18

@@ -14,8 +14,11 @@ import poregen.trainers
               help='Path to the data file (e.g., Estaillades_1000c_3p31136um.raw)'
                    'If not provided, the data will be loaded from the configuration file.')
 @click.option('--checkpoint_path', type=str, default=None,
-              help='Path to checkpoint for resuming training. '
-                   'Use "best" for the best checkpoint, or provide a specific path. Default is None.')
+              help='Resume from a checkpoint. Use "last" (default in the '
+                   'geomodel yaml) for last.ckpt after a crash, "best" for '
+                   'lowest val_loss, or a .ckpt path. If omitted, uses '
+                   'training.resume_from_checkpoint in the yaml. Missing '
+                   'last.ckpt starts a new run.')
 @click.option('--fast_dev_run', is_flag=True, default=False,
               help='If set, disables saving and trains only a few steps.')
 def train(datapath, cfgpath, checkpoint_path, fast_dev_run):
