@@ -2,7 +2,6 @@ from typing import Any
 
 import yaml
 import pathlib
-import os
 
 import torch
 
@@ -15,6 +14,25 @@ from .pore_vae_trainer import PoreVAETrainer
 
 KwargsType = dict[str, Any]
 ConditionType = str | dict[str, torch.Tensor] | torch.Tensor
+
+
+def _repo_root_from_cfg(cfg_path: str | pathlib.Path) -> pathlib.Path:
+    cfg_path = pathlib.Path(cfg_path).resolve()
+    for parent in [cfg_path.parent, *cfg_path.parents]:
+        if (parent / 'poregen').is_dir() and (parent / 'scripts').is_dir():
+            return parent
+    return cfg_path.parent.parent.parent
+
+
+def _experimental_output_folder(
+        cfg: dict[str, Any],
+        cfg_path: str | pathlib.Path) -> pathlib.Path:
+    cfg.setdefault('output', {})
+    existing = cfg['output'].get('folder')
+    if existing:
+        return pathlib.Path(existing)
+    stem = pathlib.Path(cfg_path).stem
+    return _repo_root_from_cfg(cfg_path) / 'savedmodels' / 'experimental' / stem
 
 
 def pore_train(cfg_path: str | pathlib.Path,
@@ -31,12 +49,11 @@ def pore_train(cfg_path: str | pathlib.Path,
     datamodule.setup()
     models = poregen.models.get_model(cfg['model'])
 
-    filename = os.path.basename(cfg_path)
-    # Remove yaml extension
-    filename = filename.split('.')[0]
-    basepath = pathlib.Path(cfg_path).parent.parent.parent
-    folder = basepath/'savedmodels/experimental'/filename
-    cfg['output']['folder'] = folder
+    cfg['output']['folder'] = _experimental_output_folder(cfg, cfg_path)
+    if checkpoint_path is None:
+        checkpoint_path = cfg['training'].get('resume_from_checkpoint')
+    if not load_on_fit:
+        load_on_fit = bool(cfg['training'].get('load_on_fit', False))
 
     trainer = PoreTrainer(
         models,
@@ -55,12 +72,7 @@ def pore_vae_train(cfg_path, data_path=None, checkpoint_path=None, fast_dev_run=
         data_path = cfg['data']['path']
     datamodule = poregen.data.get_datamodule(data_path, cfg['data'])
     datamodule.setup()
-    filename = os.path.basename(cfg_path)
-    filename = filename.split('.')[0]
-    basepath = pathlib.Path(cfg_path).parent.parent.parent
-    folder = basepath/'savedmodels/experimental'/filename
-    cfg.setdefault('output', {})
-    cfg['output']['folder'] = folder
+    cfg['output']['folder'] = _experimental_output_folder(cfg, cfg_path)
 
     if checkpoint_path is None:
         checkpoint_path = cfg['training'].get('resume_from_checkpoint')

@@ -125,7 +125,9 @@ class PoreTrainer:
                 conditional=self.train_config.get('conditional', False),
                 masked=self.train_config.get('masked', False),
                 autoencoder=self.autoencoder,
-                autoencoder_conditional=False
+                autoencoder_conditional=False,
+                map_location='cpu',
+                strict=True,
             )
 
     def get_checkpoint_path(self) -> Optional[str]:
@@ -184,7 +186,10 @@ class PoreTrainer:
         optimizer_lr = optimizer_config.get('lr', 2*1e-5)
         optimizer_cls = get_optimizer_cls(optimizer_type)
         optimizer_args = optimizer_config.get('args', {})
-        optimizer = optimizer_cls(self.karras_module.parameters(),
+        trainable = [
+            p for p in self.karras_module.parameters() if p.requires_grad
+        ]
+        optimizer = optimizer_cls(trainable,
                                   lr=optimizer_lr,
                                   **optimizer_args)
         # Create scheduler

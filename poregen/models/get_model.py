@@ -1,9 +1,32 @@
 from typing import Any
 
+import torch
 import diffsci.models
 import diffsci.models.nets.autoencoderldm3d
 
 from . import embedder
+
+# Keys accepted by diffsci AutoencoderKL ddconfig. Unspecified keys keep
+# the historical get_model defaults (has_mid_attn=False) or ddconfig() defaults.
+_DDCONFIG_KEYS = (
+    'double_z',
+    'z_channels',
+    'resolution',
+    'in_channels',
+    'out_ch',
+    'ch',
+    'ch_mult',
+    'num_res_blocks',
+    'attn_resolutions',
+    'dropout',
+    'has_mid_attn',
+)
+_CORE_VAE_PREFIXES = (
+    'encoder.',
+    'decoder.',
+    'quant_conv.',
+    'post_quant_conv.',
+)
 
 
 def get_conditional_embedding(conditional_embedding=None,
@@ -77,68 +100,103 @@ def get_model(cfg: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unsupported model type: {model_type}")
 
     items['model'] = model
-
-    # Load autoencoder
-    autoencoder_cfg = cfg.get('autoencoder', {})
-    if autoencoder_cfg:
-        autoencoder_type = autoencoder_cfg['type']
-        if autoencoder_type == 'AutoencoderKL':
-            checkpoint_path = autoencoder_cfg['checkpoint_path']
-            lossconfig = diffsci.models.nets.autoencoderldm3d.lossconfig(
-                kl_weight=autoencoder_cfg.get('kl_weight', 1e-4)
-            )
-            ddconfig = diffsci.models.nets.autoencoderldm3d.ddconfig(
-                resolution=autoencoder_cfg['resolution'],
-                has_mid_attn=autoencoder_cfg.get('has_mid_attn', False)
-            )
-            vae_module = diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
-                checkpoint_path,
-                ddconfig=ddconfig,
-                lossconfig=lossconfig
-            )
-            vae_module.eval()
-        else:
-            raise ValueError(f"Unsupported autoencoder type: {autoencoder_type}")
-    else:
-        vae_module = None
-
-    items['autoencoder'] = vae_module
+    items['autoencoder'] = load_autoencoder_module(cfg.get('autoencoder', {}))
     return items
+
+
+def build_ddconfig(autoencoder_cfg: dict[str, Any]):
+    """Build a 3D AutoencoderKL ddconfig from a (possibly nested) yaml dict.
+
+    Historical PoreGen LDM yamls only set ``resolution`` and ``has_mid_attn``.
+    Geomodel VAEs also need ``ch``, ``ch_mult``, ``z_channels``, ``embed_dim``,
+    and ``num_res_blocks`` or the checkpoint will not load.
+    """
+    nested = dict(autoencoder_cfg.get('config') or {})
+    kwargs: dict[str, Any] = {}
+    if 'resolution' not in autoencoder_cfg and 'resolution' not in nested:
+        raise ValueError("autoencoder.resolution is required")
+    # has_mid_attn defaulted to False in the old get_model path.
+    kwargs['has_mid_attn'] = autoencoder_cfg.get(
+        'has_mid_attn', nested.get('has_mid_attn', False))
+    kwargs['resolution'] = autoencoder_cfg.get(
+        'resolution', nested.get('resolution'))
+    for key in _DDCONFIG_KEYS:
+        if key in ('has_mid_attn', 'resolution'):
+            continue
+        if key in autoencoder_cfg:
+            kwargs[key] = autoencoder_cfg[key]
+        elif key in nested:
+            kwargs[key] = nested[key]
+    return diffsci.models.nets.autoencoderldm3d.ddconfig(**kwargs)
+
+
+def _wrap_encode_decode_no_grad(vae_module):
+    orig_encode = vae_module.encode
+    orig_decode = vae_module.decode
+
+    def encode(x):
+        with torch.no_grad():
+            return orig_encode(x)
+
+    def decode(z):
+        with torch.no_grad():
+            return orig_decode(z)
+
+    vae_module.encode = encode
+    vae_module.decode = decode
+    return vae_module
+
+
+def load_autoencoder_module(autoencoder_cfg: dict[str, Any] | None):
+    """Instantiate a frozen 3D AutoencoderKL from a checkpoint.
+
+    Loads weights with ``strict=False`` so GeomodelAutoencoderKL extras
+    (perceptual / well losses) are ignored. Core encoder/decoder keys must
+    still match.
+    """
+    if not autoencoder_cfg:
+        return None
+    autoencoder_type = autoencoder_cfg['type']
+    if autoencoder_type != 'AutoencoderKL':
+        raise ValueError(f"Unsupported autoencoder type: {autoencoder_type}")
+
+    checkpoint_path = autoencoder_cfg['checkpoint_path']
+    lossconfig = diffsci.models.nets.autoencoderldm3d.lossconfig(
+        kl_weight=autoencoder_cfg.get('kl_weight', 1e-4)
+    )
+    ddconfig = build_ddconfig(autoencoder_cfg)
+    embed_dim = int(autoencoder_cfg.get('embed_dim', 4))
+    vae_module = diffsci.models.nets.autoencoderldm3d.AutoencoderKL(
+        ddconfig=ddconfig,
+        lossconfig=lossconfig,
+        embed_dim=embed_dim,
+    )
+    ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    state = ckpt['state_dict'] if isinstance(ckpt, dict) and 'state_dict' in ckpt else ckpt
+    incompatible = vae_module.load_state_dict(state, strict=False)
+    core_missing = [
+        k for k in incompatible.missing_keys
+        if k.startswith(_CORE_VAE_PREFIXES)
+    ]
+    if core_missing:
+        raise RuntimeError(
+            "VAE checkpoint does not match autoencoder ddconfig/embed_dim. "
+            f"Missing core keys (first 8): {core_missing[:8]}"
+        )
+    vae_module.eval()
+    for param in vae_module.parameters():
+        param.requires_grad_(False)
+    return _wrap_encode_decode_no_grad(vae_module)
 
 
 def get_autoencoder(config: dict[str, Any]):
     """
     Load an autoencoder model based on the provided configuration.
-    
+
     Args:
         config: Configuration dictionary for the autoencoder
-        
+
     Returns:
         dict: Dictionary containing the autoencoder model
     """
-    items = {}
-    
-    if config:
-        autoencoder_type = config['type']
-        if autoencoder_type == 'AutoencoderKL':
-            checkpoint_path = config['checkpoint_path']
-            lossconfig = diffsci.models.nets.autoencoderldm3d.lossconfig(
-                kl_weight=config.get('kl_weight', 1e-4)
-            )
-            ddconfig = diffsci.models.nets.autoencoderldm3d.ddconfig(
-                resolution=config['resolution'],
-                has_mid_attn=config.get('has_mid_attn', False)
-            )
-            vae_module = diffsci.models.nets.autoencoderldm3d.AutoencoderKL.load_from_checkpoint(
-                checkpoint_path,
-                ddconfig=ddconfig,
-                lossconfig=lossconfig
-            )
-            vae_module.eval()
-        else:
-            raise ValueError(f"Unsupported autoencoder type: {autoencoder_type}")
-    else:
-        vae_module = None
-
-    items['autoencoder'] = vae_module
-    return items
+    return {'autoencoder': load_autoencoder_module(config)}
